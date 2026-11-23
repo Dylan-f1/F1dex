@@ -1,0 +1,22 @@
+@import 'tailwindcss';
+
+/* Jetons de la direction « Retransmission » (voir docs/DESIGN.md) */
+@theme inline {
+  --color-bg: #0c0f14;
+  --color-panel: #141922;
+  --color-track: #06080b;
+  --color-line: #262f3d;
+  --color-ink: #eef1f5;
+  --color-mute: #9aa5b5;
+  --color-fastest: #b138dd;
+
+  --color-tyre-soft: #da291c;
+  --color-tyre-medium: #ffd100;
+  --color-tyre-hard: #f2f2f2;
+  --color-tyre-intermediate: #43b02a;
+  --color-tyre-wet: #0067ad;
+  --color-tyre-unknown: #8a8a8a;
+
+  --font-display: var(--font-saira-condensed), sans-serif;
+  --font-text: var(--font-saira-semi), sans-serif;
+}
