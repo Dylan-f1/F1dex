@@ -48,3 +48,23 @@ Deux colonnes au-dessus de 1000 px (tour de chrono, duel de rythme collant), une
 ## À renseigner
 
 Modifications demandées par Dylan, références « très F1 » éventuelles, audit anti-IA (retirer un élément décoratif avant livraison).
+
+## Garage 3D (2026-11-23, mis à jour 2026-11-24)
+
+Page `/garage` : une monoplace de F1 en 3D, aux couleurs de l'écurie. Même langage que le reste : bandeau blanc incliné « GARAGE », panneau `panel`, liste d'écuries façon tour de chronométrage (liseré de la couleur d'écurie à gauche, nom en Saira Condensed). Le viewport est sur `track` (comme la carte du circuit) ; le sol reprend la carte : asphalte `panel`, bordure `line`, trait blanc `ink`. **Signature** : le bandeau lower-third sur le viewport (nom de l'écurie en blanc incliné + codes pilotes), comme un habillage de retransmission. Retiré : ombre de contact floue, reflets, halo.
+
+**Le modèle de voiture** est un `.glb` reconstruit par IA (`public/models/f1.glb`), **par décision explicite de Dylan** : la première version en formes simples (`lib/car-model.js`) « ne ressemblait à rien par rapport aux F1 » (2026-11-24). C'est donc une exception justifiée à la règle « pas d'illustrations IA génériques » de `ANTI_IA.md`, avec ces garde-fous :
+- **Aucune illustration IA n'est affichée** : l'image générée (FLUX.1-schnell, Apache 2.0) ne sert que d'entrée à la reconstruction (TRELLIS, MIT) ; seul le modèle 3D est montré, et il est annoncé comme généré par IA sous la visionneuse.
+- **Pas d'écurie réelle ni de marque** : image de F1 neutre, sans logo ; les livrées sont approchées en 4 zones par écurie (`lib/liveries.js` : carrosserie, ailerons, liserés, arête du capot) et appliquées par un shader sur la carrosserie seulement (pneus, carbone et bandes de gomme jaunes inchangés). Le liseré de la liste et le bandeau gardent la couleur OpenF1.
+- **Pas de rendu « 3D glossy »** : matière mate (`roughness 0.7`, `metalness 0`), pas de carte d'environnement, pas de halo. Le sol et le bandeau gardent la DA « Retransmission ».
+- **Limites assumées** : proportions un peu ramassées, emblème illisible sur les pontons, pas de numéro ni de sponsor, teinte parfois tachetée sur les zones sombres. Hunyuan3D-2 (meilleure qualité vue) écarté : sa licence exclut l'UE. Détails et paramètres de génération dans `docs/DECISIONS.md`.
+
+La voiture en formes simples (`lib/car-model.js`) reste **en repli** si le `.glb` ne charge pas (la légende le dit alors). Caméras dans `lib/car-camera.js`, scène dans `components/use-car-scene.js`.
+
+**Conduite (2026-11-24)** : bouton « Conduire » dans la rangée de commandes de la visionneuse. En conduite, les angles de caméra et la rotation automatique sont désactivés, le texte d'aide remplace la légende, et la visionneuse passe à 460 px de haut sur mobile pour laisser la voiture au-dessus des boutons tactiles. Tableau de bord superposé : vitesse en grand (haut gauche), tour en cours et meilleur tour en violet (haut droit), « Hors piste » sur fond jaune. Piste sans vibreurs ni décor : asphalte, deux traits blancs et une ligne de départ, comme la carte du circuit. Détails et limites dans `docs/DECISIONS.md`.
+
+**Conduite v2 (2026-11-24)** : liste « Circuit » sous les commandes de la visionneuse (16 px sur appareil tactile contre le zoom iOS). Tableau de bord : vitesse et rapport en grand (haut gauche), drapeaux jaunes empilés dessous (« Hors piste », « Tour supprimé »), bouton « Quitter » en dessous sur tactile ; chrono du tour, écart au meilleur, trois secteurs, dernier et meilleur tour en haut à droite (chrono barré si le tour est supprimé) ; cinq feux de départ au centre pendant le départ. Aucune couleur nouvelle : violet `fastest` pour le meilleur, jaune `tyre-medium` pour les drapeaux, rouge `tyre-soft` pour les feux. Détails dans `docs/DECISIONS.md`.
+
+**Conduite v3 (2026-11-24)** : panneau « Conduite » (fond `panel`) sous les boutons de caméra : listes Circuit et Aides à la conduite (étiquettes en petites capitales grises), bouton Conduire en Saira gras, phrase d'explication du niveau d'aides sous les listes. Aucune couleur nouvelle.
+
+**Conduite v4 (2026-11-24)** : décor de piste 3D : vibreurs rouge `tyre-soft` et blanc `ink`, gravier gris brun `#4f4a42`, mur de pneus clair `#c9ced6` et sombre `#2a3240`, herbe vert très sombre `#10231a` (remplace le noir bleuté). Matériaux de scène, hors jetons d'interface ; à valider par Dylan. Nouveaux drapeaux jaunes « Gravier », « Vibreur » et « Contre le mur : remise en piste ».
