@@ -151,3 +151,40 @@ test('quel que soit le niveau d’aides, un coup de volant au freinage ou à l�
 test('un niveau d’aides inconnu retombe sur les aides fortes', () => {
   assert.equal(worstSlide(120, 1, 'inconnu'), worstSlide(120, 1, 'high'))
 })
+
+test('lâcher le gaz ralentit la voiture (frein moteur) au lieu de la laisser rouler', () => {
+  for (const [kmh, gear] of [[100, 4], [200, 6]]) {
+    let car = { ...createCarState(), u: kmh / 3.6, gear }
+    for (let elapsed = 0; elapsed < 2; elapsed += DT) car = stepCar(car, { throttle: 0, brake: 0, steer: 0, assist: 'high' }, SURFACES.asphalt, DT)
+    assert.ok(car.u * 3.6 < kmh - 15, `${kmh} km/h : encore ${(car.u * 3.6).toFixed(0)} km/h après 2 s sans gaz`)
+  }
+})
+
+test('freiner volant braqué ne fait pas partir tout droit : la voiture continue de tourner (aides fortes et normales)', () => {
+  const turned = (kmh, gear, brake, assist) => {
+    let car = { ...createCarState(), u: kmh / 3.6, gear }
+    for (let elapsed = 0; elapsed < 1; elapsed += DT) car = stepCar(car, { throttle: 0, brake, steer: 1, assist }, SURFACES.asphalt, DT)
+    return Math.abs(car.heading)
+  }
+  for (const assist of ['high', 'normal']) {
+    for (const [kmh, gear] of [[100, 4], [200, 6], [280, 8]]) {
+      assert.ok(turned(kmh, gear, 1, assist) >= 0.8 * turned(kmh, gear, 0, assist), `${assist}, ${kmh} km/h : le freinage supprime le virage`)
+    }
+  }
+})
+
+test('lâcher le gaz en virage, volant tenu, ne fait jamais partir en toupie (frein moteur coupé volant braqué)', () => {
+  for (const assist of ['high', 'normal', 'off']) {
+    for (const [kmh, gear] of [[120, 5], [200, 6], [260, 7]]) {
+      for (const hold of [0.6, 1, 2]) {
+        let car = { ...createCarState(), u: kmh / 3.6, gear }
+        let worst = 0
+        for (let elapsed = 0; elapsed < 6; elapsed += DT) {
+          car = stepCar(car, { throttle: 0, brake: 0, steer: elapsed < hold ? 1 : 0, assist }, SURFACES.asphalt, DT)
+          if (car.u > 3) worst = Math.max(worst, (Math.abs(Math.atan2(car.v, car.u)) * 180) / Math.PI)
+        }
+        assert.ok(worst < 20, `${assist}, ${kmh} km/h, volant tenu ${hold} s : ${worst.toFixed(0)}° de dérive`)
+      }
+    }
+  }
+})
