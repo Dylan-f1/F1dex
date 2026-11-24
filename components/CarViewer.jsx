@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { buildCircuitTrack } from '@/lib/car-drive'
 import { CAMERA_VIEWS } from '@/lib/car-camera'
 import { countryNameFr } from '@/lib/format'
@@ -21,6 +21,9 @@ function subscribeReducedMotion(notify) {
 const readReducedMotion = () => window.matchMedia(REDUCED_MOTION_QUERY).matches
 // Côté serveur on suppose « mouvement réduit » : la rotation ne démarre jamais sans que le navigateur l'ait permis.
 const readReducedMotionOnServer = () => true
+
+// Plein écran : l'API du navigateur quand elle existe, sinon (iPhone) un « plein cadre » qui couvre la page.
+const fullscreenElement = () => document.fullscreenElement ?? document.webkitFullscreenElement ?? null
 
 const ASSIST_CHOICES = [
   { id: 'high', label: 'Fortes (stable)', hint: 'Voiture très stable : peu de glisse, le tour reste facile. Elle pardonne les coups de volant brusques.' },
@@ -65,6 +68,11 @@ export default function CarViewer({ teams, circuits = [] }) {
     return () => controller.abort()
   }, [circuitKey, loaded])
 
+  const frameRef = useRef(null)
+  const [nativeFullscreen, setNativeFullscreen] = useState(false)
+  const [pseudoFullscreen, setPseudoFullscreen] = useState(false)
+  const isFullscreen = nativeFullscreen || pseudoFullscreen
+
   const { containerRef, status, source, driving, hud, startDriving, stopDriving, setTouch, goToView } = useCarScene({
     livery,
     autoRotate,
@@ -85,6 +93,80 @@ export default function CarViewer({ teams, circuits = [] }) {
     event.target.blur() // même raison que pour le circuit : les flèches pilotent la voiture
   }
 
+  useEffect(() => {
+    const onChange = () => {
+      const active = fullscreenElement() === frameRef.current && frameRef.current !== null
+      setNativeFullscreen(active)
+      if (!active) {
+        try {
+          screen.orientation?.unlock?.()
+        } catch {
+          // pas de verrouillage d'orientation sur cet appareil
+        }
+      }
+    }
+    document.addEventListener('fullscreenchange', onChange)
+    document.addEventListener('webkitfullscreenchange', onChange)
+    return () => {
+      document.removeEventListener('fullscreenchange', onChange)
+      document.removeEventListener('webkitfullscreenchange', onChange)
+    }
+  }, [])
+
+  async function toggleFullscreen() {
+    const frame = frameRef.current
+    if (!frame) return
+    if (pseudoFullscreen) {
+      setPseudoFullscreen(false)
+      return
+    }
+    if (fullscreenElement()) {
+      await (document.exitFullscreen ?? document.webkitExitFullscreen)?.call(document)
+      return
+    }
+    const request = frame.requestFullscreen ?? frame.webkitRequestFullscreen
+    if (!request) {
+      setPseudoFullscreen(true)
+      return
+    }
+    try {
+      await request.call(frame)
+      // Sur téléphone, le paysage est le bon sens pour conduire : on le demande, sans insister s'il est refusé.
+      await screen.orientation?.lock?.('landscape')
+    } catch {
+      if (!fullscreenElement()) setPseudoFullscreen(true)
+    }
+  }
+
+  // Touche F pour (dé)passer en plein écran pendant la conduite ; Échap quitte aussi le plein cadre (sans API).
+  const toggleFullscreenRef = useRef(toggleFullscreen)
+  useEffect(() => {
+    toggleFullscreenRef.current = toggleFullscreen
+  })
+  useEffect(() => {
+    function onKey(event) {
+      if (event.metaKey || event.ctrlKey || event.altKey || event.repeat) return
+      if (event.code === 'KeyF' && driving) {
+        event.preventDefault()
+        toggleFullscreenRef.current()
+      } else if (event.code === 'Escape' && pseudoFullscreen) setPseudoFullscreen(false)
+    }
+    // Phase de capture : Échap quitte aussi la conduite, ce qui re-rend le composant et retirerait cet écouteur avant
+    // qu'il soit appelé s'il passait après celui de la conduite.
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [driving, pseudoFullscreen])
+
+  // Le plein cadre fige le défilement de la page.
+  useEffect(() => {
+    if (!pseudoFullscreen) return undefined
+    const previous = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = previous
+    }
+  }, [pseudoFullscreen])
+
   function toggleDriving() {
     if (driving) {
       stopDriving()
@@ -94,7 +176,7 @@ export default function CarViewer({ teams, circuits = [] }) {
     setRotationChoice(false)
     startDriving()
     // Le cadre grandit en conduite et ne défile pas au doigt : on le ramène entièrement à l'écran (sans animation).
-    requestAnimationFrame(() => containerRef.current?.scrollIntoView({ block: 'nearest', behavior: 'instant' }))
+    if (!isFullscreen) requestAnimationFrame(() => containerRef.current?.scrollIntoView({ block: 'nearest', behavior: 'instant' }))
   }
 
   function pickView(view) {
@@ -106,7 +188,7 @@ export default function CarViewer({ teams, circuits = [] }) {
   return (
     <div className="mt-7 grid gap-6 min-[1001px]:grid-cols-[minmax(0,1fr)_340px]">
       <section aria-label="Visionneuse 3D" className="min-w-0">
-        <div className="relative overflow-hidden bg-track">
+        <div ref={frameRef} className={`overflow-hidden bg-track ${pseudoFullscreen ? 'fixed inset-0 z-50' : 'relative'}`}>
           <div
             ref={containerRef}
             role="img"
@@ -115,7 +197,7 @@ export default function CarViewer({ teams, circuits = [] }) {
                 ? `Conduite de la monoplace ${team.name} sur ${activeCircuit ? `le circuit ${activeCircuit.name}` : 'une piste fictive'}. Flèches ou Z Q S D pour piloter, Échap pour quitter.`
                 : `Monoplace de F1 en 3D aux couleurs de ${team.name}. Glisser pour la faire tourner, molette pour s'approcher.`
             }
-            className={`${driving ? 'h-[460px]' : 'h-[340px]'} min-[700px]:h-[540px]`}
+            className={isFullscreen ? 'h-dvh' : `${driving ? 'h-[460px]' : 'h-[340px]'} min-[700px]:h-[540px]`}
           />
           {status === 'loading' && <Message>Chargement de la voiture…</Message>}
           {status === 'unavailable' && (
@@ -125,6 +207,19 @@ export default function CarViewer({ teams, circuits = [] }) {
             </Message>
           )}
           {driving && <DriveHud hud={hud} onTouch={setTouch} onQuit={stopDriving} />}
+          {(driving || isFullscreen) && (
+            <button
+              type="button"
+              aria-label={isFullscreen ? 'Quitter le plein écran' : 'Passer en plein écran'}
+              aria-pressed={isFullscreen}
+              onClick={toggleFullscreen}
+              className="absolute top-3 left-1/2 flex size-10 -translate-x-1/2 items-center justify-center bg-panel/90 text-ink [-webkit-tap-highlight-color:transparent] hover:bg-ink hover:text-bg active:bg-ink active:text-bg"
+            >
+              <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2.2">
+                <path d={isFullscreen ? 'M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5' : 'M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5'} />
+              </svg>
+            </button>
+          )}
           <div className="pointer-events-none absolute bottom-4 left-0 flex max-w-full items-stretch">
             <span
               className="relative z-10 -mr-[18px] bg-white py-1 pr-9 pl-4 font-display text-[clamp(22px,3.2vw,34px)] leading-none font-extrabold text-bg uppercase italic [clip-path:polygon(0_0,100%_0,calc(100%_-_18px)_100%,0_100%)]"
@@ -195,6 +290,15 @@ export default function CarViewer({ teams, circuits = [] }) {
           >
             {driving ? 'Quitter (Échap)' : 'Conduire'}
           </button>
+          <button
+            type="button"
+            className={`border border-line bg-bg px-3 py-1.5 text-[15px] text-ink hover:border-mute ${FOCUS} aria-pressed:border-ink aria-pressed:bg-ink aria-pressed:text-bg disabled:opacity-40`}
+            aria-pressed={isFullscreen}
+            disabled={status !== 'ready'}
+            onClick={toggleFullscreen}
+          >
+            Plein écran{driving ? ' (F)' : ''}
+          </button>
           <p role="status" className="basis-full text-[14px] text-mute">
             {circuits.length === 0
               ? 'Circuits indisponibles pour le moment (calendrier injoignable) : seul le circuit fictif est proposé. '
@@ -205,7 +309,7 @@ export default function CarViewer({ teams, circuits = [] }) {
         </div>
         <p className="mt-3 max-w-[70ch] text-[14px] text-mute">
           {driving
-            ? 'Flèches ou Z Q S D pour piloter (sur écran tactile : les boutons à l’écran), R pour revenir sur la piste, Échap pour quitter. Tour supprimé si les quatre roues sortent de la piste. Vibreurs, gravier (il freine fort) et murs de pneus (ils te remettent sur la piste) sont placés d’après la forme du tracé, pas d’après le vrai circuit. Secteurs : trois tiers égaux du tour, pas les secteurs officiels. Départ approximatif. Les roues ne tournent pas et ne braquent pas : le modèle n’est qu’une pièce.'
+            ? 'Flèches ou Z Q S D pour piloter (sur écran tactile : les boutons à l’écran), R pour revenir sur la piste, F pour le plein écran, Échap pour quitter. Tour supprimé si les quatre roues sortent de la piste. Vibreurs, gravier (il freine fort), murs de pneus (ils te remettent sur la piste), tribunes, bâtiment des stands, panneaux de freinage et arbres sont placés d’après la forme du tracé, pas d’après le vrai circuit. Secteurs : trois tiers égaux du tour, pas les secteurs officiels. Départ approximatif. Les roues ne tournent pas et ne braquent pas : le modèle n’est qu’une pièce.'
             : source === 'fallback'
               ? 'Le modèle 3D n’a pas pu être chargé : voici une monoplace stylisée construite en code, aux proportions d’une F1 de 2025. Ce n’est pas la reproduction d’une voiture précise.'
               : 'Modèle 3D généré par IA à partir d’une image de F1 générique, sans logo ni écurie réelle : ce n’est pas la reproduction d’une voiture précise. Les couleurs de chaque écurie (carrosserie, ailerons, liserés) sont approchées, sans logo ni sponsor.'}
