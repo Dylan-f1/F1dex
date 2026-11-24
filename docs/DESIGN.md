@@ -1,4 +1,4 @@
-# Doc design — F1 Dex
+# Doc design — SpeedTrack Paddock
 
 Direction retenue par Dylan le 2026-11-23 : **« Retransmission »**. Modifications à venir (à préciser par Dylan). Les pistes « Pneu » et « Livrée » sont gardées en référence dans `design/directions-v2.html`.
 

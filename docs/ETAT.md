@@ -1,4 +1,4 @@
-# État du projet — F1 Dex (nom provisoire)
+# État du projet — SpeedTrack Paddock (ex « F1 Dex »)
 
 ## Reprendre ici
 

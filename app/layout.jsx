@@ -18,7 +18,7 @@ const sairaSemiCondensed = Saira_Semi_Condensed({
 })
 
 export const metadata = {
-  title: 'F1 Dex',
+  title: 'SpeedTrack Paddock',
   description: 'Stratégie pneus, arrêts aux stands et temps au tour de chaque Grand Prix.',
 }
 
@@ -31,7 +31,7 @@ export default function RootLayout({ children }) {
             href="/"
             className="font-display text-xl font-extrabold tracking-wide uppercase italic focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-fastest"
           >
-            F1 Dex
+            SpeedTrack Paddock
           </Link>
           <Link
             href="/garage"

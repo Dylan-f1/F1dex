@@ -1,4 +1,4 @@
-# Raccourcis du projet F1 Dex. Lancer `make` seul affiche la liste des commandes.
+# Raccourcis du projet SpeedTrack Paddock. Lancer `make` seul affiche la liste des commandes.
 # Les recettes n'utilisent que npm et node : elles marchent sous Windows, Linux et macOS.
 
 .DEFAULT_GOAL := help

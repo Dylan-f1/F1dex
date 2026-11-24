@@ -5,7 +5,7 @@ import { SEASON_YEAR } from '@/lib/constants'
 import { getCalendar, getTeams } from '@/lib/openf1'
 
 export const metadata = {
-  title: 'Garage — F1 Dex',
+  title: 'Garage — SpeedTrack Paddock',
   description: 'Une monoplace de F1 en 3D, aux couleurs de chaque écurie de la saison.',
 }
 

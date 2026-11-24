@@ -1,4 +1,6 @@
-# F1 Dex
+# SpeedTrack Paddock
+
+Un outil en plus de SpeedTrack. [Lien vers SpeedTrack : À FOURNIR]
 
 Application front (React + Next.js) qui montre, pour chaque Grand Prix de la saison 2025, la stratégie de pneus de chaque pilote (relais, arrêts aux stands) et un duel de rythme entre deux pilotes (temps au tour).
 
