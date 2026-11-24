@@ -26,12 +26,18 @@ export default function RootLayout({ children }) {
   return (
     <html lang="fr" className={`${sairaCondensed.variable} ${sairaSemiCondensed.variable}`}>
       <body className="min-h-screen bg-bg font-text text-base text-ink antialiased">
-        <header className="mx-auto flex max-w-[1380px] items-center px-[clamp(12px,3vw,40px)] pt-3">
+        <header className="mx-auto flex max-w-[1380px] items-baseline gap-6 px-[clamp(12px,3vw,40px)] pt-3">
           <Link
             href="/"
             className="font-display text-xl font-extrabold tracking-wide uppercase italic focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-fastest"
           >
             F1 Dex
+          </Link>
+          <Link
+            href="/garage"
+            className="font-display text-lg font-bold text-mute hover:text-ink focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-fastest"
+          >
+            Garage
           </Link>
         </header>
         {children}
