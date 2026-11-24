@@ -8,7 +8,9 @@ import { loadBest, saveBest } from '@/lib/best-laps'
 import { ASSISTS, DEFAULT_ASSIST } from '@/lib/car-physics'
 import { DRIVE, buildDriveTrack, createDriveState, pointAt, stepDrive } from '@/lib/car-drive'
 import { KERB_WIDTH, WALL_HEIGHT, getFeatures } from '@/lib/circuit-features'
+import { getScenery } from '@/lib/circuit-scenery'
 import { offsetLine, offsetPoint } from '@/lib/drive-track'
+import { buildScenery } from './drive-scenery'
 
 // Couleurs : les jetons de la DA (voir app/globals.css) — asphalte `panel`, trait blanc `ink`.
 const GRASS_COLOUR = '#10231a'
@@ -188,6 +190,7 @@ export function createDriveMode({ THREE, scene, camera, controls, canvas, sun, r
     group.add(ribbon(resources, -half + 0.6, -half + 1.1, 0.04, LINE_COLOUR, 4))
 
     addFeatures(group, resources, half)
+    group.add(buildScenery(THREE, road, resources))
 
     // Ligne de départ : un trait blanc en travers de la piste, à l'abscisse 0.
     const start = pointAt(road, 0)
@@ -203,6 +206,17 @@ export function createDriveMode({ THREE, scene, camera, controls, canvas, sun, r
     group.visible = active
     scene.add(group)
     return { group, resources }
+  }
+
+  // Les équipements et le décor se calculent en quelques centaines de millisecondes sur un grand circuit : on les
+  // prépare pendant que la page est au repos, pour que « Conduire » ne fige pas l'écran.
+  function warmUp(target) {
+    const run = () => {
+      getFeatures(target)
+      getScenery(target)
+    }
+    if (typeof requestIdleCallback === 'function') requestIdleCallback(run, { timeout: 3000 })
+    else setTimeout(run, 300)
   }
 
   function disposeVisuals() {
@@ -325,7 +339,7 @@ export function createDriveMode({ THREE, scene, camera, controls, canvas, sun, r
     lastHud = now
     if (state.crashes > seenCrashes) {
       seenCrashes = state.crashes
-      noticeText = 'Contre le mur : remise en piste'
+      noticeText = 'Contre un obstacle : remise en piste'
       noticeUntil = now + NOTICE_MS
     }
     const lightsOutAt = DRIVE.lightsCount * DRIVE.lightsInterval + state.hold
@@ -369,7 +383,10 @@ export function createDriveMode({ THREE, scene, camera, controls, canvas, sun, r
       if (target === road) return
       road = target
       disposeVisuals()
-      if (!active) return
+      if (!active) {
+        warmUp(target)
+        return
+      }
       visuals = buildVisuals()
       newRun()
       placeCarAndSun()
