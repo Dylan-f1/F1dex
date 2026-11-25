@@ -12,7 +12,7 @@ export function createWheelRig(THREE, mergeGeometries) {
 
   // Pivot de braquage (axe vertical) > orientation > rotation sur l'essieu > roue.
   // `yaw` aligne le repère de la roue sur celui de la voiture ; `outward` < 0 retourne la face extérieure.
-  function mount(parent, { name, position, front, radius, width, outward, yaw = 0 }) {
+  function mount(parent, { name, position, front, radius, width, outward, yaw = 0, brand }) {
     const pivot = new THREE.Group()
     pivot.name = `pivot-${name}`
     pivot.position.set(...position)
@@ -20,7 +20,7 @@ export function createWheelRig(THREE, mergeGeometries) {
     frame.rotation.y = yaw
     const spin = new THREE.Group()
     spin.name = 'rotation'
-    const wheel = factory.wheel(radius, width)
+    const wheel = factory.wheel(radius, width, brand)
     if (outward < 0) wheel.rotation.y = Math.PI
     spin.add(wheel)
     frame.add(spin)
@@ -76,9 +76,9 @@ export function createWheelRig(THREE, mergeGeometries) {
       }
       return factory.resources()
     },
-    // Voiture construite en code (lib/car-body.js) : x vers l'avant, z vers la droite, en mètres. Renvoie les
-    // ressources créées.
-    attachCodeCar(car, list) {
+    // Voiture construite en code (lib/car-body.js) : x vers l'avant, z vers la droite, en mètres. `brand` : matière
+    // de la marque des pneus. Renvoie les ressources créées.
+    attachCodeCar(car, list, brand) {
       for (const wheel of list) {
         mount(car, {
           name: wheel.id,
@@ -88,6 +88,7 @@ export function createWheelRig(THREE, mergeGeometries) {
           width: wheel.width,
           yaw: Math.PI / 2,
           outward: wheel.position[2] > 0 ? -1 : 1,
+          brand,
         })
       }
       return factory.resources()

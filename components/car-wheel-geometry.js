@@ -20,6 +20,11 @@ const LETTERING = [
   [0.14, 0.2],
   [Math.PI - 0.18, 0.36],
 ]
+// Proportions (largeur / hauteur) de l'inscription du pneu, public/logos/pirelli.png.
+const BRAND_ASPECT = 409 / 91
+// Rayons de la bande qui la porte, en parts du rayon : sur la partie plate du flanc.
+const BRAND_RADII = [0.755, 0.855]
+
 // Repères en travers de la bande de roulement, seuls visibles depuis la caméra de poursuite : [angle, largeur].
 // Répartis inégalement pour ne pas paraître immobiles à haute vitesse.
 const TREAD_MARKS = [
@@ -42,10 +47,28 @@ export function createWheelFactory(THREE, mergeGeometries) {
     return materials[name]
   }
 
-  function build(radius, width) {
+  // Morceau d'anneau sur lequel l'image est courbée : lue de l'extérieur, de gauche à droite en haut du pneu.
+  function brandArc(radius, centre) {
+    const [inner, outer] = BRAND_RADII.map((part) => part * radius)
+    const length = ((outer - inner) * BRAND_ASPECT) / ((inner + outer) / 2)
+    const ring = new THREE.RingGeometry(inner, outer, 24, 1, centre - length / 2, length)
+    const { position, uv } = ring.attributes
+    for (let index = 0; index < position.count; index += 1) {
+      const x = position.getX(index)
+      const y = position.getY(index)
+      const delta = Math.atan2(Math.sin(Math.atan2(y, x) - centre), Math.cos(Math.atan2(y, x) - centre))
+      uv.setXY(index, 0.5 - delta / length, (Math.hypot(x, y) - inner) / (outer - inner))
+    }
+    return ring
+  }
+
+  // `brand` : matière portant la marque du manufacturier ; sans elle, de simples traits sur le flanc.
+  function build(radius, width, brand) {
     const face = width / 2
     const lift = radius * 0.006 // les marquages sont posés juste au-dessus de la gomme
-    const parts = Object.fromEntries(Object.keys(MATERIALS).map((name) => [name, []]))
+    const names = Object.keys(MATERIALS).filter((name) => !(brand && name === 'lettering'))
+    if (brand) names.push('brand')
+    const parts = Object.fromEntries(names.map((name) => [name, []]))
 
     const profile = tyreProfile(radius, width).map(([r, a]) => new THREE.Vector2(r, a))
     // La coupe est tournée autour de y, puis l'axe est couché sur x.
@@ -54,8 +77,12 @@ export function createWheelFactory(THREE, mergeGeometries) {
     // Pièces plates tournées vers l'extérieur (+x), à la position `x` le long de l'essieu.
     const facing = (geometry, x) => geometry.rotateY(Math.PI / 2).translate(x, 0, 0)
     parts.band.push(facing(new THREE.RingGeometry(radius * 0.67, radius * 0.73, 48), face + lift))
-    for (const [start, length] of LETTERING) {
-      parts.lettering.push(facing(new THREE.RingGeometry(radius * 0.76, radius * 0.84, 8, 1, start, length), face + lift))
+    if (brand) {
+      for (const centre of [Math.PI / 2, -Math.PI / 2]) parts.brand.push(facing(brandArc(radius, centre), face + lift))
+    } else {
+      for (const [start, length] of LETTERING) {
+        parts.lettering.push(facing(new THREE.RingGeometry(radius * 0.76, radius * 0.84, 8, 1, start, length), face + lift))
+      }
     }
 
     const treadWidth = width - radius * 0.46
@@ -84,7 +111,7 @@ export function createWheelFactory(THREE, mergeGeometries) {
       const merged = mergeGeometries(geometries)
       for (const geometry of geometries) geometry.dispose()
       resources.push(merged)
-      const mesh = new THREE.Mesh(merged, material(name))
+      const mesh = new THREE.Mesh(merged, name === 'brand' ? brand : material(name))
       mesh.name = `roue-${name}`
       mesh.castShadow = name === 'tyre'
       wheel.add(mesh)
@@ -94,9 +121,9 @@ export function createWheelFactory(THREE, mergeGeometries) {
 
   return {
     // Une roue de ces dimensions ; les géométries sont partagées entre roues identiques.
-    wheel(radius, width) {
-      const key = `${radius}×${width}`
-      if (!templates.has(key)) templates.set(key, build(radius, width))
+    wheel(radius, width, brand) {
+      const key = `${radius}×${width}×${brand?.uuid ?? ''}`
+      if (!templates.has(key)) templates.set(key, build(radius, width, brand))
       return templates.get(key).clone()
     },
     // Géométries et matières créées, à libérer avec la scène.

@@ -4,8 +4,10 @@ import { useEffect, useRef, useState } from 'react'
 import { CODE_CAR_WHEELS } from '@/lib/car-body'
 import { CAMERA_TARGET, DEFAULT_VIEW, VIEW_TRANSITION_MS, easeOutCubic, lerpPoint, showroomFov } from '@/lib/car-camera'
 import { accentFor, buildCarParts } from '@/lib/car-model'
+import { decalPlan } from '@/lib/decals'
 import { MODEL_FIT } from '@/lib/car-wheels'
 import { buildCodeCar } from './car-body-mesh'
+import { createDecals, createPainter } from './car-decals'
 import { createWheelRig } from './car-wheel-rig'
 import { DRIVE_FOV, createDriveMode } from './drive-mode'
 
@@ -108,8 +110,10 @@ function createScene({
   GLTFLoader,
   mergeGeometries,
   toCreasedNormals,
+  DecalGeometry,
   container,
   livery,
+  team,
   autoRotate,
   road,
   assist,
@@ -204,7 +208,11 @@ function createScene({
     uBoxMin: { value: new THREE.Vector3() },
     uBoxSize: { value: new THREE.Vector3(1, 1, 1) },
   }
-  function setLivery(next) {
+  let current = { livery, team }
+  let decals = null // logos et inscriptions : voiture construite en code seulement
+  function setLivery(next, nextTeam) {
+    current = { livery: next, team: nextTeam }
+    decals?.show(decalPlan(nextTeam, next))
     materials.livery.color.set(next.base)
     materials.accent.color.set(accentFor(next.base))
     materials.wing.color.set(next.wing)
@@ -215,7 +223,7 @@ function createScene({
     liveryUniforms.uLiveryTrim.value.set(next.trim)
     liveryUniforms.uLiverySpine.value.set(next.spine)
   }
-  setLivery(livery)
+  setLivery(livery, team)
 
   // Voiture de repli, faite de formes simples : affichée seulement si le modèle 3D ne se charge pas.
   function addFallbackCar() {
@@ -239,8 +247,19 @@ function createScene({
   // la livrée.
   function addCodeCar() {
     const { group, resources } = buildCodeCar(THREE, materials)
-    for (const resource of [...resources, ...wheels.attachCodeCar(group, CODE_CAR_WHEELS)]) track(resource)
+    const paint = createPainter(THREE)
+    // Marque sur le flanc des pneus : invisible tant que son image n'est pas là.
+    const brand = track(new THREE.MeshStandardMaterial({ roughness: 0.8, transparent: true, depthWrite: false, visible: false }))
+    paint({ content: { logo: 'pirelli' }, colour: null })
+      .then(({ texture }) => {
+        if (disposed) return texture.dispose()
+        Object.assign(brand, { map: track(texture), visible: true, needsUpdate: true })
+      })
+      .catch(() => {}) // image absente : pneus sans marque
+    for (const resource of [...resources, ...wheels.attachCodeCar(group, CODE_CAR_WHEELS, brand)]) track(resource)
     rig.add(group)
+    decals = createDecals({ THREE, DecalGeometry, car: group, paint })
+    decals.show(decalPlan(current.team, current.livery))
   }
 
   // Modèle 3D : posé au sol, centré, mis à l'échelle, nez vers +x (comme la voiture de repli).
@@ -441,6 +460,7 @@ ${LIVERY_FRAGMENT_GLSL}`)
     dispose() {
       disposed = true
       drive.dispose()
+      decals?.dispose()
       cancelAnimationFrame(frame)
       frame = 0
       isVisible = false
@@ -458,11 +478,11 @@ ${LIVERY_FRAGMENT_GLSL}`)
 
 // Monte la scène three.js dans le conteneur renvoyé (ref) et expose des commandes. three.js est chargé
 // à la demande : la page garage seule paie son poids, pas le reste du site.
-export function useCarScene({ livery, autoRotate, road, assist, sound }) {
+export function useCarScene({ livery, team, autoRotate, road, assist, sound }) {
   const containerRef = useRef(null)
   const sceneRef = useRef(null)
   // Valeurs courantes lues au moment où la scène se monte (le chargement est asynchrone).
-  const latest = useRef({ livery, autoRotate, road, assist, sound })
+  const latest = useRef({ livery, team, autoRotate, road, assist, sound })
   const [status, setStatus] = useState('loading')
   // 'model' (modèle 3D reconstruit), 'code' (monoplace construite en code, sur demande) ou 'fallback' (voiture en
   // formes simples) : sert à la légende sous la visionneuse.
@@ -472,24 +492,29 @@ export function useCarScene({ livery, autoRotate, road, assist, sound }) {
   const [hud, setHud] = useState(null)
 
   useEffect(() => {
-    latest.current = { livery, autoRotate, road, assist, sound }
-    sceneRef.current?.setLivery(livery)
+    latest.current = { livery, team, autoRotate, road, assist, sound }
     sceneRef.current?.setAutoRotate(autoRotate)
     sceneRef.current?.setRoad(road)
     sceneRef.current?.setAssist(assist)
     sceneRef.current?.setSound(sound)
-  }, [livery, autoRotate, road, assist, sound])
+  }, [livery, team, autoRotate, road, assist, sound])
+
+  // À part : changer d'écurie repose les logos, un réglage de conduite ne doit pas le faire.
+  useEffect(() => {
+    sceneRef.current?.setLivery(livery, team)
+  }, [livery, team])
 
   useEffect(() => {
     let cancelled = false
     async function mount() {
       try {
-        const [THREE, controlsModule, boxModule, loaderModule, geometryModule] = await Promise.all([
+        const [THREE, controlsModule, boxModule, loaderModule, geometryModule, decalModule] = await Promise.all([
           import('three'),
           import('three/examples/jsm/controls/OrbitControls.js'),
           import('three/examples/jsm/geometries/RoundedBoxGeometry.js'),
           import('three/examples/jsm/loaders/GLTFLoader.js'),
           import('three/examples/jsm/utils/BufferGeometryUtils.js'),
+          import('three/examples/jsm/geometries/DecalGeometry.js'),
         ])
         // Le montage a été annulé pendant le chargement (Strict Mode, navigation) : on ne crée rien.
         if (cancelled || !containerRef.current) return
@@ -500,8 +525,10 @@ export function useCarScene({ livery, autoRotate, road, assist, sound }) {
           GLTFLoader: loaderModule.GLTFLoader,
           mergeGeometries: geometryModule.mergeGeometries,
           toCreasedNormals: geometryModule.toCreasedNormals,
+          DecalGeometry: decalModule.DecalGeometry,
           container: containerRef.current,
           livery: latest.current.livery,
+          team: latest.current.team,
           autoRotate: latest.current.autoRotate,
           road: latest.current.road,
           assist: latest.current.assist,

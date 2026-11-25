@@ -94,6 +94,7 @@ export default function CarViewer({ teams, circuits = [] }) {
 
   const { containerRef, status, source, driving, hud, startDriving, stopDriving, setTouch, goToView } = useCarScene({
     livery,
+    team,
     autoRotate,
     road,
     assist,
@@ -413,7 +414,7 @@ export default function CarViewer({ teams, circuits = [] }) {
             : source === 'fallback'
               ? 'Le modèle 3D n’a pas pu être chargé : voici une monoplace stylisée construite en code, aux proportions d’une F1 de 2025. Ce n’est pas la reproduction d’une voiture précise.'
               : source === 'code'
-                ? 'Monoplace stylisée construite entièrement en code, à comparer au modèle généré par IA : 2 m de large, 3,6 m d’empattement (cotes du règlement 2022-2025). Ce n’est pas la reproduction d’une voiture précise. Les couleurs de chaque écurie (carrosserie, ailerons, liserés) sont approchées, sans logo ni sponsor.'
+                ? 'Monoplace stylisée construite en code aux cotes d’une F1 (2022-2025), pas une voiture réelle. Couleurs approchées ; logos et noms sont des marques de leurs propriétaires (projet étudiant non officiel). Numéro : premier pilote de l’écurie.'
                 : 'Modèle 3D généré par IA à partir d’une image de F1 générique, sans logo ni écurie réelle : ce n’est pas la reproduction d’une voiture précise. Les roues sont construites en code. Les couleurs de chaque écurie (carrosserie, ailerons, liserés) sont approchées, sans logo ni sponsor.'}
         </p>
       </section>
