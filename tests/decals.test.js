@@ -3,13 +3,15 @@ import assert from 'node:assert/strict'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import * as THREE from 'three'
 import { DecalGeometry } from 'three/examples/jsm/geometries/DecalGeometry.js'
-import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
+import { mergeGeometries, toCreasedNormals } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { buildCodeCar } from '../components/car-body-mesh.js'
 import { createDecals } from '../components/car-decals.js'
+import { placeModel } from '../components/car-model-placement.js'
 import { createWheelRig } from '../components/car-wheel-rig.js'
 import { CODE_CAR_WHEELS } from '../lib/car-body.js'
-import { LOGOS, SLOTS, TEAM_MARKS, contrast, decalPlan, markColour } from '../lib/decals.js'
+import { LOGOS, MODEL_SLOTS, SLOTS, TEAM_MARKS, contrast, decalPlan, markColour } from '../lib/decals.js'
 import { LIVERIES } from '../lib/liveries.js'
+import { readModel } from './helpers/read-model.js'
 
 const team = (name, number = 4) => ({ name, drivers: number === null ? [] : [{ code: 'XXX', number }] })
 const plan = (name, number) => decalPlan(team(name, number), LIVERIES[name])
@@ -158,5 +160,77 @@ test('les pneus de la voiture en code portent la marque à la place des traits',
       if (position.getY(at) > 0 && Math.abs(position.getZ(at)) < 1e-6) assert.ok(Math.abs(uv.getX(at) - 0.5) < 1e-5)
       if (position.getY(at) > 0 && position.getZ(at) > wheel.radius * 0.1) assert.ok(uv.getX(at) < 0.5)
     }
+  }
+})
+
+// Le vrai modèle, assemblé comme dans la page (components/use-car-scene.js).
+function modelCar() {
+  const { positions, indices } = readModel(new URL('../public/models/f1.glb', import.meta.url))
+  const geometry = new THREE.BufferGeometry()
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+  geometry.setIndex(new THREE.BufferAttribute(indices, 1))
+  const root = new THREE.Group()
+  const body = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial())
+  root.add(body)
+  const brand = new THREE.MeshStandardMaterial()
+  createWheelRig(THREE, mergeGeometries).attachModel(body, brand)
+  body.geometry = toCreasedNormals(body.geometry, (40 * Math.PI) / 180)
+  const rig = new THREE.Group()
+  rig.add(placeModel(THREE, root, { fitted: true, fallbackLength: 5.6 }))
+  return { rig, body, brand }
+}
+const modelPlan = (name) => decalPlan(team(name), LIVERIES[name], MODEL_SLOTS)
+
+test('le modèle 3D reçoit les mêmes inscriptions que la voiture en code', () => {
+  const marks = (slots) => slots.map((slot) => [slot.id, slot.mark])
+  // Sauf le dessus de l'aileron arrière, trop abîmé sur ce modèle.
+  assert.deepEqual(marks(MODEL_SLOTS), marks(SLOTS.filter((slot) => slot.id !== 'volet')))
+  assert.deepEqual(modelPlan('McLaren').map((item) => item.id), MODEL_SLOTS.map((slot) => slot.id))
+})
+
+test('sur le modèle 3D, chaque inscription se pose sur la carrosserie, même quand la voiture roule', async () => {
+  const { rig, body } = modelCar()
+  rig.position.set(40, 3, -12)
+  rig.rotation.set(0.05, 1.2, 0.03)
+  rig.updateMatrixWorld(true)
+  for (const aspect of [0.8, 4, 14]) {
+    const decals = createDecals({ THREE, DecalGeometry, car: rig, surface: () => body, paint: fakePainter([], aspect) })
+    await decals.show(modelPlan('McLaren'))
+    assert.deepEqual(decalsOf(rig).map((mesh) => mesh.name), MODEL_SLOTS.map((slot) => `decal-${slot.id}`), `proportions ${aspect}`)
+    for (const mesh of decalsOf(rig)) {
+      const slot = MODEL_SLOTS.find((candidate) => `decal-${candidate.id}` === mesh.name)
+      const centre = new THREE.Box3().setFromBufferAttribute(mesh.geometry.attributes.position).getCenter(new THREE.Vector3())
+      assert.ok(centre.distanceTo(new THREE.Vector3(...slot.position)) < 0.2, `${slot.id} : ${centre.toArray()}`)
+    }
+    const triangles = decalsOf(rig).reduce((sum, mesh) => sum + mesh.geometry.attributes.position.count / 3, 0)
+    assert.ok(triangles < 6000, `${triangles} triangles`)
+    decals.dispose()
+    assert.equal(decalsOf(rig).length, 0)
+  }
+})
+
+test('sur le modèle 3D, l’inscription couvre sa largeur sans trou', async () => {
+  const { rig, body } = modelCar()
+  const decals = createDecals({ THREE, DecalGeometry, car: rig, surface: () => body, paint: fakePainter([], 4) })
+  await decals.show(modelPlan('Williams'))
+  for (const mesh of decalsOf(rig)) {
+    if (!/ponton|capot|derive/.test(mesh.name)) continue
+    const { uv } = mesh.geometry.attributes
+    // Dix tranches de gauche à droite : aucune ne doit rester vide.
+    const slices = new Set(Array.from({ length: uv.count / 3 }, (_, face) => {
+      const u = [0, 1, 2].reduce((sum, corner) => sum + uv.getX(face * 3 + corner), 0) / 3
+      return Math.min(9, Math.floor(u * 10))
+    }))
+    const bounds = Array.from({ length: uv.count }, (_, at) => uv.getX(at))
+    assert.ok(Math.min(...bounds) < 0.05 && Math.max(...bounds) > 0.95, `${mesh.name} : ${Math.min(...bounds)} à ${Math.max(...bounds)}`)
+    assert.ok(slices.size >= 8, `${mesh.name} : ${slices.size} tranches sur 10`)
+  }
+})
+
+test('les pneus du modèle 3D portent la marque', () => {
+  const { rig, brand } = modelCar()
+  for (const wheel of CODE_CAR_WHEELS) {
+    const mark = rig.getObjectByName(`pivot-${wheel.id}`).getObjectByName('roue-brand')
+    assert.equal(mark.material, brand, wheel.id)
   }
 })

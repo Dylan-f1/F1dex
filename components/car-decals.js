@@ -1,5 +1,5 @@
-// Pose les logos et inscriptions (lib/decals.js) sur la voiture construite en code : chacun est une fine surface
-// qui épouse la pièce visée. Les textures ne sont chargées que pour l'écurie affichée.
+// Pose les logos et inscriptions (lib/decals.js) sur une voiture : chacun est une fine surface qui épouse la pièce
+// visée. Les textures ne sont chargées que pour l'écurie affichée.
 // Imports relatifs : ce module est aussi testé avec `node --test`.
 
 const LOGO_PATH = '/logos'
@@ -84,8 +84,20 @@ function facingOnly(THREE, geometry, normal) {
   return result
 }
 
-// `car` : le groupe de components/car-body-mesh.js ; `paint` : voir createPainter.
-export function createDecals({ THREE, DecalGeometry, car, paint }) {
+// Matrice d'un objet dans le repère d'un de ses ancêtres : indépendante de la place de la voiture dans la scène.
+function relativeMatrix(THREE, object, ancestor) {
+  const matrix = new THREE.Matrix4()
+  for (let node = object; node && node !== ancestor; node = node.parent) {
+    node.updateMatrix()
+    matrix.premultiply(node.matrix)
+  }
+  return matrix
+}
+
+// `car` : le groupe qui reçoit les inscriptions et dont le repère est celui des emplacements ; `paint` : voir
+// createPainter ; `surface` : le maillage visé par un emplacement, descendant de `car` (par défaut, la pièce de la
+// voiture construite en code, components/car-body-mesh.js).
+export function createDecals({ THREE, DecalGeometry, car, paint, surface = (item) => car.getObjectByName(`caisse-${item.part}`) }) {
   let generation = 0
   let meshes = []
   let textures = []
@@ -102,7 +114,7 @@ export function createDecals({ THREE, DecalGeometry, car, paint }) {
   }
 
   function place(item, { texture, aspect }) {
-    const target = car.getObjectByName(`caisse-${item.part}`)
+    const target = surface(item)
     if (!target) return null
     const normal = new THREE.Vector3(...item.normal).normalize()
     const up = new THREE.Vector3(...item.up).normalize()
@@ -110,8 +122,10 @@ export function createDecals({ THREE, DecalGeometry, car, paint }) {
     const orientation = new THREE.Euler().setFromRotationMatrix(new THREE.Matrix4().makeBasis(right, up, normal))
     const width = Math.min(item.size[0], item.size[1] * aspect)
     const size = new THREE.Vector3(width, width / aspect, item.depth)
-    // Maillage neutre : la projection se fait dans le repère de la voiture, même quand elle roule.
-    const raw = new DecalGeometry(new THREE.Mesh(target.geometry), new THREE.Vector3(...item.position), orientation, size)
+    // Copie détachée : la projection se fait dans le repère de la voiture, même quand elle roule.
+    const proxy = new THREE.Mesh(target.geometry)
+    proxy.matrixWorld.copy(relativeMatrix(THREE, target, car))
+    const raw = new DecalGeometry(proxy, new THREE.Vector3(...item.position), orientation, size)
     const geometry = facingOnly(THREE, raw, normal)
     raw.dispose()
     if (geometry.attributes.position.count === 0) {

@@ -1,4 +1,4 @@
-# Logos de la voiture construite en code
+# Logos des voitures du garage
 
 Marques déposées de leurs propriétaires. Projet étudiant non officiel, sans lien avec les écuries, les sponsors ni la
 Formule 1. « Public domain » porte sur le droit d'auteur du fichier, **pas** sur le droit des marques.

@@ -4,10 +4,10 @@ import { useEffect, useRef, useState } from 'react'
 import { CODE_CAR_WHEELS } from '@/lib/car-body'
 import { CAMERA_TARGET, DEFAULT_VIEW, VIEW_TRANSITION_MS, easeOutCubic, lerpPoint, showroomFov } from '@/lib/car-camera'
 import { accentFor, buildCarParts } from '@/lib/car-model'
-import { decalPlan } from '@/lib/decals'
-import { MODEL_FIT } from '@/lib/car-wheels'
+import { MODEL_SLOTS, SLOTS, decalPlan } from '@/lib/decals'
 import { buildCodeCar } from './car-body-mesh'
 import { createDecals, createPainter } from './car-decals'
+import { placeModel } from './car-model-placement'
 import { createWheelRig } from './car-wheel-rig'
 import { DRIVE_FOV, createDriveMode } from './drive-mode'
 
@@ -209,10 +209,12 @@ function createScene({
     uBoxSize: { value: new THREE.Vector3(1, 1, 1) },
   }
   let current = { livery, team }
-  let decals = null // logos et inscriptions : voiture construite en code seulement
+  let decals = null // logos et inscriptions : absents de la voiture de repli
+  let slots = []
+  const showDecals = () => decals?.show(decalPlan(current.team, current.livery, slots))
   function setLivery(next, nextTeam) {
     current = { livery: next, team: nextTeam }
-    decals?.show(decalPlan(nextTeam, next))
+    showDecals()
     materials.livery.color.set(next.base)
     materials.accent.color.set(accentFor(next.base))
     materials.wing.color.set(next.wing)
@@ -243,12 +245,8 @@ function createScene({
     rig.add(car)
   }
 
-  // Voiture construite en code (adresse /garage?voiture=code), à comparer au modèle IA : une matière par zone de
-  // la livrée.
-  function addCodeCar() {
-    const { group, resources } = buildCodeCar(THREE, materials)
-    const paint = createPainter(THREE)
-    // Marque sur le flanc des pneus : invisible tant que son image n'est pas là.
+  // Marque sur le flanc des pneus : invisible tant que son image n'est pas là.
+  function brandMaterial(paint) {
     const brand = track(new THREE.MeshStandardMaterial({ roughness: 0.8, transparent: true, depthWrite: false, visible: false }))
     paint({ content: { logo: 'pirelli' }, colour: null })
       .then(({ texture }) => {
@@ -256,10 +254,22 @@ function createScene({
         Object.assign(brand, { map: track(texture), visible: true, needsUpdate: true })
       })
       .catch(() => {}) // image absente : pneus sans marque
-    for (const resource of [...resources, ...wheels.attachCodeCar(group, CODE_CAR_WHEELS, brand)]) track(resource)
+    return brand
+  }
+  function addDecals(carSlots, options) {
+    slots = carSlots
+    decals = createDecals({ THREE, DecalGeometry, ...options })
+    showDecals()
+  }
+
+  // Voiture construite en code (adresse /garage?voiture=code), à comparer au modèle IA : une matière par zone de
+  // la livrée.
+  function addCodeCar() {
+    const { group, resources } = buildCodeCar(THREE, materials)
+    const paint = createPainter(THREE)
+    for (const resource of [...resources, ...wheels.attachCodeCar(group, CODE_CAR_WHEELS, brandMaterial(paint))]) track(resource)
     rig.add(group)
-    decals = createDecals({ THREE, DecalGeometry, car: group, paint })
-    decals.show(decalPlan(current.team, current.livery))
+    addDecals(SLOTS, { car: group, paint })
   }
 
   // Modèle 3D : posé au sol, centré, mis à l'échelle, nez vers +x (comme la voiture de repli).
@@ -270,7 +280,9 @@ function createScene({
     root.traverse((object) => {
       if (object.isMesh) bodies.push(object)
     })
-    let fitted = false
+    const paint = createPainter(THREE)
+    const brand = brandMaterial(paint)
+    let fitted = null // la maille dont les roues ont été reconnues
     for (const object of bodies) {
       object.castShadow = true
       const material = object.material
@@ -303,9 +315,9 @@ ${LIVERY_FRAGMENT_GLSL}`)
       track(material)
       if (material.map) track(material.map)
       // Après la mesure de la boîte (la livrée est repérée sur la voiture entière).
-      const added = wheels.attachModel(object)
+      const added = wheels.attachModel(object, brand)
       for (const resource of added) track(resource)
-      fitted ||= added.length > 0
+      if (added.length > 0) fitted ??= object
       // Après la découpe des roues, qui travaille sur les triangles d'origine.
       const loaded = object.geometry
       object.geometry = toCreasedNormals(loaded, CREASE_ANGLE)
@@ -313,20 +325,10 @@ ${LIVERY_FRAGMENT_GLSL}`)
       track(object.geometry)
       material.flatShading = false
     }
-    if (fitted) root.scale.setScalar(MODEL_FIT.scale)
-    else {
-      const initialBox = new THREE.Box3().setFromObject(root)
-      root.scale.setScalar(CAR_MODEL_LENGTH / initialBox.getSize(new THREE.Vector3()).z)
-    }
-    root.updateMatrixWorld(true)
-    const box = new THREE.Box3().setFromObject(root)
-    const centre = box.getCenter(new THREE.Vector3())
-    root.position.set(-centre.x, -box.min.y, -centre.z)
-    const car = new THREE.Group()
-    car.add(root)
-    car.rotation.y = Math.PI / 2
-    rig.add(car)
+    rig.add(placeModel(THREE, root, { fitted: Boolean(fitted), fallbackLength: CAR_MODEL_LENGTH }))
     wheels.setScale(root.scale.x)
+    // Les emplacements sont mesurés sur ce modèle : un autre fichier reste sans inscriptions.
+    if (fitted) addDecals(MODEL_SLOTS, { car: rig, paint, surface: () => fitted })
   }
 
   let disposed = false

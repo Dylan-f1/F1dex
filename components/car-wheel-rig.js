@@ -31,8 +31,9 @@ export function createWheelRig(THREE, mergeGeometries) {
 
   return {
     // `body` : le maillage du modèle, auquel on retire ses pneus, puis qu'on allonge à des proportions de F1 (les
-    // roues, ajoutées à côté, restent rondes). Renvoie les ressources créées, à libérer avec la scène.
-    attachModel(body) {
+    // roues, ajoutées à côté, restent rondes). `brand` : matière de la marque des pneus. Renvoie les ressources
+    // créées, à libérer avec la scène.
+    attachModel(body, brand) {
       const { geometry, parent } = body
       if (!geometry.index) return []
       const cut = removeWheels(geometry.attributes.position.array, geometry.index.array)
@@ -49,6 +50,7 @@ export function createWheelRig(THREE, mergeGeometries) {
           radius: wheel.radius,
           width: wheelWidth(wheel),
           outward: wheel.side,
+          brand,
         })
       }
       return factory.resources()
