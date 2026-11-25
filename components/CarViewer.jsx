@@ -412,7 +412,9 @@ export default function CarViewer({ teams, circuits = [] }) {
             ? 'Flèches ou Z Q S D pour piloter (sur écran tactile : joystick à gauche pour tourner, frein et gaz à droite), R pour revenir sur la piste, F pour le plein écran, M pour le son, Échap pour quitter. Tour supprimé si les quatre roues sortent de la piste. Vibreurs, gravier (il freine fort), murs de pneus (ils te remettent sur la piste), tribunes, bâtiment des stands, panneaux de freinage et arbres sont placés d’après la forme du tracé, pas d’après le vrai circuit. Secteurs : trois tiers égaux du tour, pas les secteurs officiels. Départ approximatif. Relief : altitude mesurée par OpenF1 sur les vrais circuits, inventée sur le circuit fictif ; lissée et sans dévers. Son du moteur synthétisé (sur iPhone, le mode silencieux le coupe sans doute aussi). Le braquage des roues avant est amplifié à l’écran pour rester visible.'
             : source === 'fallback'
               ? 'Le modèle 3D n’a pas pu être chargé : voici une monoplace stylisée construite en code, aux proportions d’une F1 de 2025. Ce n’est pas la reproduction d’une voiture précise.'
-              : 'Modèle 3D généré par IA à partir d’une image de F1 générique, sans logo ni écurie réelle : ce n’est pas la reproduction d’une voiture précise. Les roues sont construites en code. Les couleurs de chaque écurie (carrosserie, ailerons, liserés) sont approchées, sans logo ni sponsor.'}
+              : source === 'code'
+                ? 'Monoplace stylisée construite entièrement en code, à comparer au modèle généré par IA : 2 m de large, 3,6 m d’empattement (cotes du règlement 2022-2025). Ce n’est pas la reproduction d’une voiture précise. Les couleurs de chaque écurie (carrosserie, ailerons, liserés) sont approchées, sans logo ni sponsor.'
+                : 'Modèle 3D généré par IA à partir d’une image de F1 générique, sans logo ni écurie réelle : ce n’est pas la reproduction d’une voiture précise. Les roues sont construites en code. Les couleurs de chaque écurie (carrosserie, ailerons, liserés) sont approchées, sans logo ni sponsor.'}
         </p>
       </section>
 

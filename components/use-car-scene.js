@@ -1,8 +1,11 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { CODE_CAR_WHEELS } from '@/lib/car-body'
 import { CAMERA_TARGET, DEFAULT_VIEW, VIEW_TRANSITION_MS, easeOutCubic, lerpPoint, showroomFov } from '@/lib/car-camera'
 import { accentFor, buildCarParts } from '@/lib/car-model'
+import { MODEL_FIT } from '@/lib/car-wheels'
+import { buildCodeCar } from './car-body-mesh'
 import { createWheelRig } from './car-wheel-rig'
 import { DRIVE_FOV, createDriveMode } from './drive-mode'
 
@@ -11,6 +14,9 @@ import { DRIVE_FOV, createDriveMode } from './drive-mode'
 const MATERIAL_SETTINGS = {
   livery: { roughness: 0.55, metalness: 0.05 },
   accent: { roughness: 0.6, metalness: 0.05 },
+  wing: { roughness: 0.55, metalness: 0.05 },
+  trim: { roughness: 0.55, metalness: 0.05 },
+  spine: { roughness: 0.55, metalness: 0.05 },
   carbon: { color: '#191c21', roughness: 0.55, metalness: 0.1 },
   tyre: { color: '#15171b', roughness: 0.9, metalness: 0 },
   rim: { color: '#3a4048', roughness: 0.5, metalness: 0.3 },
@@ -18,9 +24,12 @@ const MATERIAL_SETTINGS = {
   helmet: { color: '#eef1f5', roughness: 0.5, metalness: 0 },
 }
 // Modèle 3D de la voiture (voir docs/DECISIONS.md : image FLUX.1-schnell puis reconstruction TRELLIS, deux
-// modèles sous licence libre). Longueur visée : celle d'une F1 (environ 5,6 m).
+// modèles sous licence libre). Ses proportions sont corrigées au chargement (MODEL_FIT de lib/car-wheels.js) ;
+// un autre fichier, dont les roues ne sont pas reconnues, est seulement mis à la longueur d'une F1.
 const CAR_MODEL_URL = '/models/f1.glb'
-const CAR_MODEL_LENGTH = 4.7
+const CAR_MODEL_LENGTH = 5.6 // m
+// Le fichier n'a pas de normales (rendu à facettes) : on les lisse, sauf aux arêtes plus vives que cet angle.
+const CREASE_ANGLE = (40 * Math.PI) / 180
 
 // Livrée d'écurie : la texture du modèle est grise et blanche (carrosserie), noire (pneus, carbone) et jaune
 // (bandes de gomme). Les zones de carrosserie (luminance moyenne, peu saturée) sont repeintes ; les autres ne
@@ -30,34 +39,48 @@ const CAR_MODEL_LENGTH = 4.7
 const LIVERY_VERTEX_GLSL = /* glsl */ `
   vCarPosition = position;
 `
+// Limite nette entre deux zones, adoucie sur un pixel seulement.
+const LIVERY_COMMON_GLSL = /* glsl */ `
+  float carEdge(float limit, float value) {
+    float width = fwidth(value) + 0.00001;
+    return smoothstep(limit - width, limit + width, value);
+  }
+`
 const LIVERY_FRAGMENT_GLSL = /* glsl */ `
   float tintLum = dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722));
   float tintMax = max(diffuseColor.r, max(diffuseColor.g, diffuseColor.b));
   float tintMin = min(diffuseColor.r, min(diffuseColor.g, diffuseColor.b));
   float tintSat = tintMax > 0.0001 ? (tintMax - tintMin) / tintMax : 0.0;
-  float tintMask = smoothstep(0.07, 0.16, tintLum) * (1.0 - smoothstep(0.35, 0.6, tintSat));
+  float tintMask = smoothstep(0.09, 0.13, tintLum) * (1.0 - smoothstep(0.35, 0.6, tintSat));
 
   vec3 carN = (vCarPosition - uBoxMin) / uBoxSize;
   float lat = abs(carN.x - 0.5) * 2.0;
-  // Transitions courtes : une livrée a des limites nettes, pas des dégradés.
-  float frontWing = smoothstep(0.80, 0.82, carN.z) * (1.0 - smoothstep(0.30, 0.32, carN.y));
-  float rearWing = (1.0 - smoothstep(0.14, 0.16, carN.z)) * smoothstep(0.42, 0.44, carN.y);
+  // Une livrée a des limites nettes, pas des dégradés. L'aileron avant ne déborde pas sur le nez (étroit et haut).
+  float frontWing = carEdge(0.81, carN.z) * (1.0 - carEdge(0.31, carN.y)) * max(carEdge(0.17, lat), 1.0 - carEdge(0.17, carN.y));
+  float rearWing = (1.0 - carEdge(0.15, carN.z)) * carEdge(0.43, carN.y);
   // Roues (positions mesurées sur le modèle via les bandes jaunes de la texture) : jamais repeintes.
   vec2 frontWheel = vec2((carN.z - 0.77) / 0.11, (carN.y - 0.31) / 0.23);
   vec2 rearWheel = vec2((carN.z - 0.135) / 0.12, (carN.y - 0.31) / 0.23);
   float wheel = (1.0 - smoothstep(0.85, 1.0, min(length(frontWheel), length(rearWheel)))) * smoothstep(0.45, 0.55, lat);
   float wing = max(frontWing, rearWing) * (1.0 - wheel);
-  float noseTip = smoothstep(0.93, 0.94, carN.z) * (1.0 - smoothstep(0.26, 0.28, carN.y)) * (1.0 - smoothstep(0.14, 0.16, lat));
-  float sideBand = smoothstep(0.38, 0.40, lat) * (1.0 - smoothstep(0.17, 0.19, carN.y)) * smoothstep(0.25, 0.27, carN.z) * (1.0 - smoothstep(0.64, 0.66, carN.z));
-  float spine = (1.0 - smoothstep(0.05, 0.07, lat)) * smoothstep(0.50, 0.52, carN.y) * smoothstep(0.28, 0.30, carN.z) * (1.0 - smoothstep(0.60, 0.62, carN.z));
+  float noseTip = carEdge(0.935, carN.z) * (1.0 - carEdge(0.27, carN.y)) * (1.0 - carEdge(0.15, lat));
+  // Liseré sur le bord extérieur du fond plat seulement.
+  float sideBand = carEdge(0.74, lat) * (1.0 - carEdge(0.14, carN.y)) * carEdge(0.26, carN.z) * (1.0 - carEdge(0.65, carN.z));
+  float spine = (1.0 - carEdge(0.06, lat)) * carEdge(0.51, carN.y) * carEdge(0.29, carN.z) * (1.0 - carEdge(0.61, carN.z));
+  // Faux emblème des pontons et faux numéro du nez, dessinés en sombre dans la texture : on peint par-dessus.
+  float emblem = (1.0 - carEdge(1.0, length(vec2((carN.z - 0.47) / 0.065, (carN.y - 0.36) / 0.11)))) * carEdge(0.3, lat);
+  float noseMarks = carEdge(0.86, carN.z) * (1.0 - carEdge(0.935, carN.z)) * (1.0 - carEdge(0.1, lat)) * carEdge(0.24, carN.y);
+  float cover = max(emblem, noseMarks);
 
   vec3 zone = uLiveryBase;
   zone = mix(zone, uLiveryWing, wing);
   zone = mix(zone, uLiveryTrim, max(noseTip, sideBand));
   zone = mix(zone, uLiverySpine, spine);
   // Les ailerons ont une texture sombre : on les repeint aussi, sans toucher aux pneus (luminance plus basse).
-  float paintMask = max(tintMask * (1.0 - wheel), wing * smoothstep(0.025, 0.05, tintLum));
-  diffuseColor.rgb = mix(diffuseColor.rgb, zone * (0.5 + 1.0 * tintLum), paintMask);
+  float paintMask = max(max(tintMask * (1.0 - wheel), wing * smoothstep(0.025, 0.05, tintLum)), cover);
+  // La texture ne module plus que légèrement la peinture (sinon elle y laisse des taches).
+  float shade = mix(0.8 + 0.4 * tintLum, 1.0, cover);
+  diffuseColor.rgb = mix(diffuseColor.rgb, zone * shade, paintMask);
 `
 
 // Couleurs de la scène, reprises des jetons de la DA (voir app/globals.css).
@@ -84,12 +107,14 @@ function createScene({
   RoundedBoxGeometry,
   GLTFLoader,
   mergeGeometries,
+  toCreasedNormals,
   container,
   livery,
   autoRotate,
   road,
   assist,
   sound,
+  codeCar,
   onStatus,
   onSource,
   onHud,
@@ -182,6 +207,9 @@ function createScene({
   function setLivery(next) {
     materials.livery.color.set(next.base)
     materials.accent.color.set(accentFor(next.base))
+    materials.wing.color.set(next.wing)
+    materials.trim.color.set(next.trim)
+    materials.spine.color.set(next.spine)
     liveryUniforms.uLiveryBase.value.set(next.base)
     liveryUniforms.uLiveryWing.value.set(next.wing)
     liveryUniforms.uLiveryTrim.value.set(next.trim)
@@ -207,6 +235,14 @@ function createScene({
     rig.add(car)
   }
 
+  // Voiture construite en code (adresse /garage?voiture=code), à comparer au modèle IA : une matière par zone de
+  // la livrée.
+  function addCodeCar() {
+    const { group, resources } = buildCodeCar(THREE, materials)
+    for (const resource of [...resources, ...wheels.attachCodeCar(group, CODE_CAR_WHEELS)]) track(resource)
+    rig.add(group)
+  }
+
   // Modèle 3D : posé au sol, centré, mis à l'échelle, nez vers +x (comme la voiture de repli).
   function addModelCar(gltf) {
     const root = gltf.scene
@@ -215,6 +251,7 @@ function createScene({
     root.traverse((object) => {
       if (object.isMesh) bodies.push(object)
     })
+    let fitted = false
     for (const object of bodies) {
       object.castShadow = true
       const material = object.material
@@ -240,17 +277,28 @@ uniform vec3 uLiveryTrim;
 uniform vec3 uLiverySpine;
 uniform vec3 uBoxMin;
 uniform vec3 uBoxSize;
+${LIVERY_COMMON_GLSL}
 ${shader.fragmentShader}`.replace('#include <map_fragment>', `#include <map_fragment>
 ${LIVERY_FRAGMENT_GLSL}`)
       }
-      track(object.geometry)
       track(material)
       if (material.map) track(material.map)
       // Après la mesure de la boîte (la livrée est repérée sur la voiture entière).
-      for (const resource of wheels.attachModel(object)) track(resource)
+      const added = wheels.attachModel(object)
+      for (const resource of added) track(resource)
+      fitted ||= added.length > 0
+      // Après la découpe des roues, qui travaille sur les triangles d'origine.
+      const loaded = object.geometry
+      object.geometry = toCreasedNormals(loaded, CREASE_ANGLE)
+      if (object.geometry !== loaded) loaded.dispose()
+      track(object.geometry)
+      material.flatShading = false
     }
-    const initialBox = new THREE.Box3().setFromObject(root)
-    root.scale.setScalar(CAR_MODEL_LENGTH / initialBox.getSize(new THREE.Vector3()).z)
+    if (fitted) root.scale.setScalar(MODEL_FIT.scale)
+    else {
+      const initialBox = new THREE.Box3().setFromObject(root)
+      root.scale.setScalar(CAR_MODEL_LENGTH / initialBox.getSize(new THREE.Vector3()).z)
+    }
     root.updateMatrixWorld(true)
     const box = new THREE.Box3().setFromObject(root)
     const centre = box.getCenter(new THREE.Vector3())
@@ -263,31 +311,35 @@ ${LIVERY_FRAGMENT_GLSL}`)
   }
 
   let disposed = false
-  new GLTFLoader().load(
-    CAR_MODEL_URL,
-    (gltf) => {
-      if (disposed) {
-        // Démontage pendant le chargement : rien n'a été suivi par `track`, on libère ici ce qui vient d'être chargé.
-        gltf.scene.traverse((object) => {
-          if (!object.isMesh) return
-          object.geometry.dispose()
-          object.material.map?.dispose()
-          object.material.dispose()
-        })
-        return
-      }
-      addModelCar(gltf)
-      onSource('model')
-      onStatus('ready')
-    },
-    undefined,
-    () => {
-      if (disposed) return
-      addFallbackCar()
-      onSource('fallback')
-      onStatus('ready')
-    },
-  )
+  function showCar(source, add) {
+    add()
+    onSource(source)
+    onStatus('ready')
+  }
+  function loadModelCar() {
+    new GLTFLoader().load(
+      CAR_MODEL_URL,
+      (gltf) => {
+        if (disposed) {
+          // Démontage pendant le chargement : rien n'a été suivi par `track`, on libère ici ce qui vient d'être chargé.
+          gltf.scene.traverse((object) => {
+            if (!object.isMesh) return
+            object.geometry.dispose()
+            object.material.map?.dispose()
+            object.material.dispose()
+          })
+          return
+        }
+        showCar('model', () => addModelCar(gltf))
+      },
+      undefined,
+      () => {
+        if (!disposed) showCar('fallback', addFallbackCar)
+      },
+    )
+  }
+  if (codeCar) showCar('code', addCodeCar)
+  else loadModelCar()
 
   const drive = createDriveMode({
     THREE,
@@ -412,7 +464,8 @@ export function useCarScene({ livery, autoRotate, road, assist, sound }) {
   // Valeurs courantes lues au moment où la scène se monte (le chargement est asynchrone).
   const latest = useRef({ livery, autoRotate, road, assist, sound })
   const [status, setStatus] = useState('loading')
-  // 'model' (modèle 3D reconstruit) ou 'fallback' (voiture en formes simples) : sert à la légende sous la visionneuse.
+  // 'model' (modèle 3D reconstruit), 'code' (monoplace construite en code, sur demande) ou 'fallback' (voiture en
+  // formes simples) : sert à la légende sous la visionneuse.
   const [source, setSource] = useState('model')
   // Conduite : actif ou non, et dernières valeurs du tableau de bord (rafraîchies environ 10 fois par seconde).
   const [driving, setDriving] = useState(false)
@@ -446,12 +499,15 @@ export function useCarScene({ livery, autoRotate, road, assist, sound }) {
           RoundedBoxGeometry: boxModule.RoundedBoxGeometry,
           GLTFLoader: loaderModule.GLTFLoader,
           mergeGeometries: geometryModule.mergeGeometries,
+          toCreasedNormals: geometryModule.toCreasedNormals,
           container: containerRef.current,
           livery: latest.current.livery,
           autoRotate: latest.current.autoRotate,
           road: latest.current.road,
           assist: latest.current.assist,
           sound: latest.current.sound,
+          // Lu ici, côté navigateur : la page reste statique.
+          codeCar: new URLSearchParams(window.location.search).get('voiture') === 'code',
           onStatus: setStatus,
           onSource: setSource,
           onHud: setHud,

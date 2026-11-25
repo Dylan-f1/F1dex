@@ -2,7 +2,7 @@
 // repli, pose à leur place les roues construites en code (car-wheel-geometry.js), puis les fait tourner et braquer.
 // Imports relatifs : ce module est aussi testé avec `node --test`.
 
-import { MODEL_WHEELS, advanceSpin, removeWheels, shownSteerAngle, wheelCentre, wheelWidth } from '../lib/car-wheels.js'
+import { MODEL_FIT, MODEL_WHEELS, advanceSpin, removeWheels, shownSteerAngle, wheelCentre, wheelWidth } from '../lib/car-wheels.js'
 import { createWheelFactory } from './car-wheel-geometry.js'
 
 export function createWheelRig(THREE, mergeGeometries) {
@@ -30,8 +30,8 @@ export function createWheelRig(THREE, mergeGeometries) {
   }
 
   return {
-    // `body` : le maillage du modèle, auquel on retire ses pneus. Renvoie les ressources créées, à libérer avec la
-    // scène.
+    // `body` : le maillage du modèle, auquel on retire ses pneus, puis qu'on allonge à des proportions de F1 (les
+    // roues, ajoutées à côté, restent rondes). Renvoie les ressources créées, à libérer avec la scène.
     attachModel(body) {
       const { geometry, parent } = body
       if (!geometry.index) return []
@@ -39,11 +39,12 @@ export function createWheelRig(THREE, mergeGeometries) {
       // Un autre fichier de modèle que celui mesuré : on laisse la voiture entière plutôt que de la découper de travers.
       if (cut.removed.some((count) => count === 0)) return []
       geometry.setIndex(cut.body)
+      body.scale.z *= MODEL_FIT.stretch
       for (const wheel of MODEL_WHEELS) {
         const centre = wheelCentre(wheel)
         mount(parent, {
           name: wheel.id,
-          position: [centre[0] + body.position.x, centre[1] + body.position.y, centre[2] + body.position.z],
+          position: [centre[0] + body.position.x, centre[1] + body.position.y, centre[2] * MODEL_FIT.stretch + body.position.z],
           front: wheel.front,
           radius: wheel.radius,
           width: wheelWidth(wheel),
@@ -72,6 +73,22 @@ export function createWheelRig(THREE, mergeGeometries) {
             outward: tyre.position.z > 0 ? -1 : 1,
           })
         }
+      }
+      return factory.resources()
+    },
+    // Voiture construite en code (lib/car-body.js) : x vers l'avant, z vers la droite, en mètres. Renvoie les
+    // ressources créées.
+    attachCodeCar(car, list) {
+      for (const wheel of list) {
+        mount(car, {
+          name: wheel.id,
+          position: wheel.position,
+          front: wheel.front,
+          radius: wheel.radius,
+          width: wheel.width,
+          yaw: Math.PI / 2,
+          outward: wheel.position[2] > 0 ? -1 : 1,
+        })
       }
       return factory.resources()
     },

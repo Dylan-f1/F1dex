@@ -26,8 +26,11 @@ const GRAVEL_COLOUR = '#4f4a42'
 const WALL_LIGHT = '#c9ced6'
 const WALL_DARK = '#2a3240'
 
-const CHASE_DISTANCE = { still: 9, fast: 13 } // m derrière la voiture, à l'arrêt et à pleine vitesse
-const CHASE_HEIGHT = 3.4
+const CHASE_DISTANCE = { still: 8, fast: 12 } // m derrière la voiture, à l'arrêt et à pleine vitesse
+const CHASE_HEIGHT = 2.8
+const LOOK_HEIGHT = 0.8 // m au-dessus du sol : hauteur du point visé
+// Appoint venant de la caméra : sans lui, l'arrière de la voiture reste noir selon le cap.
+const FILL_LIGHT = { colour: '#dfe7f5', intensity: 1.1, lift: 3 }
 // Point visé devant la voiture : plus il est proche, plus la voiture remonte vers le centre du cadre (les boutons
 // tactiles occupent le bas de l'image).
 const LOOK_AHEAD = 1.5
@@ -94,6 +97,7 @@ export function createDriveMode({ THREE, scene, camera, controls, canvas, sun, r
   const showroomClip = { near: camera.near, far: camera.far }
   const forward = new THREE.Vector3()
   const lookAt = new THREE.Vector3()
+  const fill = new THREE.DirectionalLight(FILL_LIGHT.colour, FILL_LIGHT.intensity)
 
   const level = (index) => road.relief?.heights[index] ?? 0
 
@@ -358,8 +362,11 @@ export function createDriveMode({ THREE, scene, camera, controls, canvas, sun, r
     if (terrain) {
       camera.position.y = Math.max(camera.position.y, terrain.surface(camera.position.x, camera.position.z) + TERRAIN.drop + CAMERA_CLEARANCE)
     }
-    lookAt.set(state.x, floor + 1 + LOOK_AHEAD * cameraTilt, state.z).addScaledVector(forward, LOOK_AHEAD)
+    lookAt.set(state.x, floor + LOOK_HEIGHT + LOOK_AHEAD * cameraTilt, state.z).addScaledVector(forward, LOOK_AHEAD)
     camera.lookAt(lookAt)
+    fill.position.copy(camera.position).y += FILL_LIGHT.lift
+    fill.target.position.set(state.x, floor, state.z)
+    fill.target.updateMatrixWorld()
   }
 
   // Secousse sur vibreur : la voiture et la caméra tressautent, d'autant plus que la voiture va vite.
@@ -472,6 +479,7 @@ export function createDriveMode({ THREE, scene, camera, controls, canvas, sun, r
       visuals.group.visible = true
       controls.enabled = false
       canvas.style.touchAction = 'none'
+      scene.add(fill)
       Object.assign(sun.shadow.camera, { left: -14, right: 14, top: 14, bottom: -14, far: 60 })
       sun.shadow.camera.updateProjectionMatrix()
       Object.assign(camera, DRIVE_CLIP)
@@ -501,6 +509,7 @@ export function createDriveMode({ THREE, scene, camera, controls, canvas, sun, r
       sun.target.position.set(0, 0, 0)
       sun.target.updateMatrixWorld()
       sun.position.set(4, 9, 5)
+      scene.remove(fill)
       controls.enabled = true
       canvas.style.touchAction = 'pan-y'
       camera.position.set(...DEFAULT_VIEW.position)

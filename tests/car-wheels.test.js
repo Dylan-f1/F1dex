@@ -4,8 +4,10 @@ import { readFileSync } from 'node:fs'
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { createWheelRig } from '../components/car-wheel-rig.js'
+import { CODE_CAR_WHEELS } from '../lib/car-body.js'
 import { buildCarParts } from '../lib/car-model.js'
 import {
+  MODEL_FIT,
   MODEL_WHEELS,
   WHEEL_VISUAL,
   advanceSpin,
@@ -72,6 +74,25 @@ test('à l’arrière, rien de l’ancien pneu ne dépasse autour de la roue', (
       assert.ok(!(beside && Math.hypot(y - wheel.y, z - wheel.z) <= wheel.radius + 0.03), `${wheel.id} : reste à ${x}, ${y}, ${z}`)
     }
   }
+})
+
+test('une fois corrigée, la voiture a les cotes d’une F1', () => {
+  const [front, , rear] = MODEL_WHEELS
+  const extent = (axis) => {
+    let min = Infinity
+    let max = -Infinity
+    for (let index = axis; index < model.positions.length; index += 3) {
+      min = Math.min(min, model.positions[index])
+      max = Math.max(max, model.positions[index])
+    }
+    return max - min
+  }
+  const { scale, stretch } = MODEL_FIT
+  const within = (value, low, high, what) => assert.ok(value >= low && value <= high, `${what} : ${value.toFixed(3)} m`)
+  within(extent(0) * scale, 1.9, 2.05, 'largeur')
+  within(extent(2) * scale * stretch, 5.4, 5.9, 'longueur')
+  within((front.z - rear.z) * scale * stretch, 3.59, 3.61, 'empattement')
+  within(front.radius * 2 * scale, 0.69, 0.74, 'diamètre des pneus')
 })
 
 test('le profil du pneu tient dans le rayon et la largeur mesurés', () => {
@@ -149,10 +170,29 @@ test('sur le modèle, les roues roulent vers l’avant et seules celles de devan
   const rig = createWheelRig(THREE, mergeGeometries)
   assert.ok(rig.attachModel(body).length > 0)
   assert.equal(geometry.index.count, cut.body.length)
+  // La carrosserie est allongée, les roues suivent sur la longueur sans être déformées.
+  assert.equal(body.scale.z, MODEL_FIT.stretch)
   for (const wheel of MODEL_WHEELS) {
-    assert.deepEqual(car.getObjectByName(`pivot-${wheel.id}`).position.toArray(), wheelCentre(wheel))
+    const [x, y, z] = wheelCentre(wheel)
+    const pivot = car.getObjectByName(`pivot-${wheel.id}`)
+    assert.deepEqual(pivot.position.toArray(), [x, y, z * MODEL_FIT.stretch])
+    assert.deepEqual(pivot.scale.toArray(), [1, 1, 1])
   }
   checkRig(car, rig, new THREE.Vector3(0, 0, 1))
+})
+
+test('sur la voiture construite en code, les roues roulent vers l’avant, face tournée vers l’extérieur', () => {
+  const car = new THREE.Group()
+  const rig = createWheelRig(THREE, mergeGeometries)
+  assert.ok(rig.attachCodeCar(car, CODE_CAR_WHEELS).length > 0)
+  car.updateMatrixWorld(true)
+  for (const wheel of CODE_CAR_WHEELS) {
+    const spin = car.getObjectByName(`pivot-${wheel.id}`).getObjectByName('rotation')
+    const face = spin.children[0]
+    const outward = face.localToWorld(new THREE.Vector3(1, 0, 0)).sub(face.localToWorld(new THREE.Vector3()))
+    assert.ok(outward.z * wheel.position[2] > 0, wheel.id)
+  }
+  checkRig(car, rig, new THREE.Vector3(1, 0, 0))
 })
 
 test('la voiture de repli a les mêmes roues, qui roulent aussi vers l’avant', () => {
