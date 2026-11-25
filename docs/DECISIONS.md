@@ -181,7 +181,7 @@
 
 - **Logos sur la voiture en code (2026-11-25, demande de Dylan : « juste qu’on voit les logo et autres des formule 1 »)** : `/garage?voiture=code` porte les logos et inscriptions de l’écurie choisie.
   - **Où** : inscription principale sur les pontons et le volet arrière, seconde sur le capot moteur et les dérives, numéro du premier pilote (OpenF1) sur le nez, « Pirelli » sur les flancs des pneus à la place des traits gris.
-  - **Seulement la voiture en code** (pris par Claude) : la surface cabossée du modèle IA déformerait les logos. `/garage` sans paramètre est inchangé.
+  - **Seulement la voiture en code** (pris par Claude) : la surface cabossée du modèle IA déformerait les logos. `/garage` sans paramètre est inchangé. Revu le même jour après essai (dernière entrée « Logos sur la voiture de `/garage` »).
   - **Fichiers** : 15 PNG dans `public/logos/`, tirés de Wikimedia Commons, sources et licences dans `public/logos/SOURCES.md`. Domaine public pour le droit d’auteur, **marques déposées** : site et dépôt publics, projet étudiant non officiel, mention sous la visionneuse. Pirelli retouché (fond jaune retiré, lettres blanches).
   - **Lettrage à la place d’un logo** (police du site) : Ferrari, Aston Martin et Racing Bulls (pas de logo libre trouvé sur Commons), Petronas (seule une version anniversaire sur fond blanc), Kick Sauber partout (voir ci-dessous). Les fichiers « non libres » de Wikipédia n’ont pas été utilisés.
   - **Couleurs** (pris par Claude) : logo d’une seule couleur repeint en blanc ou presque noir selon le fond ; logo en couleurs gardé s’il atteint un contraste de 3 avec le fond, sinon repeint ; Chrome toujours en couleurs.
@@ -203,3 +203,10 @@
   - **Version commitée vérifiée seule** (copie à part, sans le travail non commité de l’autre session) : 205 tests, lint, build webpack (Turbopack refuse le lien vers `node_modules` de la copie), conduite fictif et Monaco : 60 images/s, aucune erreur.
   - **À surveiller** : une fois sur 20 départs en conduite, la compilation de plusieurs shaders a échoué (`VALIDATE_STATUS false`, erreur 1282, journal vide) : sol, ciel et arbres absents. Non reproduit ensuite, cause inconnue. **Aucun essai sur téléphone.** Sous 15 images/s la simulation ralentit (`DRIVE.maxStep`).
   - **Limites** : décor générique (Monaco reçoit herbe, arbres et montagnes au lieu d’une ville ; pas de désert à Bahreïn ni de grande roue à Suzuka) ; public immobile ; feux du portique non synchronisés ; le bâtiment des stands suit la pente par tronçons.
+
+- **Logos sur la voiture de `/garage` (2026-11-25)** : Claude proposait d’y afficher la voiture en code ; réponse de Dylan « par contre garde la forme des formule 1 dans garage », puis choix « Forme A + logos » : la forme du modèle IA reste, les logos sont posés dessus.
+  - Mêmes inscriptions que la voiture en code, emplacements mesurés sur la surface du modèle (`MODEL_SLOTS`), « Pirelli » sur ses pneus. `/garage?voiture=code` ne change pas.
+  - **Pas d’inscription sur le dessus de l’aileron arrière** (pris par Claude après essai) : surface déchiquetée, texte haché.
+  - L’avis précédent (« la surface cabossée les déformerait ») n’avait pas été testé : à l’essai, pontons, capot, nez et dérives sont nets.
+  - **Technique** : `createDecals` reçoit la maille visée et projette dans le repère de la voiture (échelle et allongement compris) ; mise en place du modèle sortie dans `components/car-model-placement.js` pour tester sur le vrai fichier. Un autre fichier de modèle resterait sans logos.
+  - **Vérifié** : 209 tests, lint, build ; Chrome en rendu logiciel : 10 écuries sous 3 angles et gros plans, logos non reconstruits pendant la conduite, 390 px, son et roues 26/26, mobile 60/60. **Non vérifié** : vrai téléphone, GPU réel.
