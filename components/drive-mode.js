@@ -1,36 +1,36 @@
 // Mode « conduite » du garage : une piste (le circuit fictif ou un vrai circuit), la voiture pilotable au clavier
 // ou au toucher, une caméra qui la suit. Les calculs (physique, tours) sont dans lib/car-drive.js ; ici :
 // l'affichage de la piste, les entrées, la caméra, les roues, le son et l'enregistrement du meilleur tour.
-// Ce module ne crée rien tant que la conduite n'a pas été lancée une première fois.
+// Rien n'est ajouté à la scène tant que la conduite n'a pas été lancée une première fois : seuls les calculs et les
+// dessins sont préparés au repos.
 
+import { AMBIANCES, pickAmbiance, sunVector } from '@/lib/ambiance'
 import { DEFAULT_VIEW } from '@/lib/car-camera'
 import { loadBest, saveBest } from '@/lib/best-laps'
 import { ASSISTS, DEFAULT_ASSIST } from '@/lib/car-physics'
 import { DRIVE, buildDriveTrack, createDriveState, groundUnder, pointAt, stepDrive } from '@/lib/car-drive'
-import { KERB_WIDTH, WALL_HEIGHT, getFeatures } from '@/lib/circuit-features'
+import { getFeatures } from '@/lib/circuit-features'
 import { getScenery } from '@/lib/circuit-scenery'
-import { offsetLine, offsetPoint } from '@/lib/drive-track'
 import { ENGINE_SOUND, engineSound, soundRevs } from '@/lib/engine-sound'
-import { FICTIVE_RELIEF, gradeAt, heightAt } from '@/lib/relief'
-import { TERRAIN, floorAt, getTerrain, pavedEdge, skirtFoot } from '@/lib/terrain'
+import { FICTIVE_RELIEF } from '@/lib/relief'
+import { barrierLayout, groveTrees, racingLine } from '@/lib/scenery-layout'
+import { TERRAIN, floorAt, getTerrain } from '@/lib/terrain'
+import { buildRoad } from './drive-road'
 import { buildScenery } from './drive-scenery'
-import { buildTerrainMesh } from './drive-terrain'
+import { buildSky, warmSky } from './drive-sky'
+import { contactTexture, textureWarmUps } from './drive-textures'
+import { buildTrees } from './drive-trees'
 import { createEngineAudio } from './engine-audio'
-
-// Couleurs : les jetons de la DA (voir app/globals.css) — asphalte `panel`, trait blanc `ink`.
-const GRASS_COLOUR = '#10231a'
-const ASPHALT_COLOUR = '#141922'
-const LINE_COLOUR = '#eef1f5'
-const KERB_RED = '#da291c' // jeton `tyre-soft`
-const GRAVEL_COLOUR = '#4f4a42'
-const WALL_LIGHT = '#c9ced6'
-const WALL_DARK = '#2a3240'
 
 const CHASE_DISTANCE = { still: 8, fast: 12 } // m derrière la voiture, à l'arrêt et à pleine vitesse
 const CHASE_HEIGHT = 2.8
 const LOOK_HEIGHT = 0.8 // m au-dessus du sol : hauteur du point visé
-// Appoint venant de la caméra : sans lui, l'arrière de la voiture reste noir selon le cap.
-const FILL_LIGHT = { colour: '#dfe7f5', intensity: 1.1, lift: 3 }
+// Appoint venant de la caméra : sans lui, l'arrière de la voiture reste noir selon le cap (force : lib/ambiance.js).
+const FILL_LIGHT = { colour: '#dfe7f5', lift: 3 }
+// Ombres du soleil en conduite : un carré de `half` m de demi-côté, centré en avant de la voiture. Plus petit et
+// moins fin sur écran tactile.
+const WARM_SPARE = 8 // ms de temps libre en dessous duquel la préparation au repos rend la main
+const SHADOWS = { fine: { half: 80, map: 2048 }, touch: { half: 50, map: 1024 }, distance: 180, lead: 0.6 }
 // Point visé devant la voiture : plus il est proche, plus la voiture remonte vers le centre du cadre (les boutons
 // tactiles occupent le bas de l'image).
 const LOOK_AHEAD = 1.5
@@ -38,9 +38,7 @@ const CAMERA_TURN_RATE = 7 // par seconde : la caméra suit le cap de la voiture
 const CAMERA_TILT_RATE = 4 // par seconde : et sa pente, adoucie
 const CAMERA_TILT_SHARE = 0.7 // part de la pente que la caméra suit : le reste se voit à l'image
 const CAMERA_CLEARANCE = 1.4 // m : hauteur minimale au-dessus du sol
-const RETAINING_COLOUR = '#3a404a' // murs de soutènement, là où la piste domine le sol
 const DRIVE_CLIP = { near: 0.5, far: 4000 } // plus loin qu'au showroom : les circuits font plusieurs kilomètres
-const GROUND_MARGIN = 1200 // m de sol autour du circuit
 const HUD_INTERVAL_MS = 100
 const NOTICE_MS = 2800 // durée du message « mur »
 const KERB_SHAKE = 0.06 // m d'amplitude de la secousse sur vibreur, à pleine vitesse
@@ -77,6 +75,7 @@ export function createDriveMode({ THREE, scene, camera, controls, canvas, sun, r
   let visuals = null // { group, resources } : la piste affichée, libérée quand on change de circuit
   let state = createDriveState(road)
   let active = false
+  let disposed = false
   let lastTime = null
   let lastHud = 0
   let savedBest = 0
@@ -92,176 +91,131 @@ export function createDriveMode({ THREE, scene, camera, controls, canvas, sun, r
   const keys = { throttle: false, brake: false, left: false, right: false }
   const touch = { throttle: 0, brake: 0, steer: 0 }
   // Réglages du showroom, à restaurer en sortant (on ne copie que ces champs : le reste de la caméra est en lecture seule).
-  const { left, right, top, bottom, far } = sun.shadow.camera
-  const showroomShadow = { left, right, top, bottom, far }
+  const { left, right, top, bottom, near, far } = sun.shadow.camera
+  const showroomShadow = { left, right, top, bottom, near, far }
   const showroomClip = { near: camera.near, far: camera.far }
   const forward = new THREE.Vector3()
   const lookAt = new THREE.Vector3()
-  const fill = new THREE.DirectionalLight(FILL_LIGHT.colour, FILL_LIGHT.intensity)
-
-  const level = (index) => road.relief?.heights[index] ?? 0
-
-  // Bande de largeur variable le long de la piste, entre deux décalages latéraux (en mètres, positifs vers la
-  // droite de la marche).
-  function ribbon(resources, from, to, height, colour, polygonOffset) {
-    const first = offsetLine(road, from)
-    const second = offsetLine(road, to)
-    const positions = []
-    const indices = []
-    const count = first.length
-    for (let index = 0; index < count; index += 1) {
-      const y = level(index) + height
-      positions.push(first[index].x, y, first[index].z, second[index].x, y, second[index].z)
-      const next = (index + 1) % count
-      indices.push(index * 2, index * 2 + 1, next * 2, index * 2 + 1, next * 2 + 1, next * 2)
-    }
-    const geometry = new THREE.BufferGeometry()
-    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
-    geometry.setIndex(indices)
-    geometry.computeVertexNormals()
-    const material = new THREE.MeshStandardMaterial({
-      color: colour,
-      roughness: 1,
-      side: THREE.DoubleSide,
-      polygonOffset: true,
-      polygonOffsetFactor: -polygonOffset,
-      polygonOffsetUnits: -polygonOffset,
-    })
-    resources.push(geometry, material)
-    const mesh = new THREE.Mesh(geometry, material)
-    mesh.receiveShadow = true
-    return mesh
-  }
-
-  // Bande entre deux écarts latéraux (en mètres, valeurs positives, côté `side`), limitée aux échantillons où
-  // `active(i)` est vrai. `colourAt(i)` donne la couleur de chaque morceau (vibreurs, murs rayés). `yFrom` et `yTo`
-  // sont des hauteurs au-dessus de la piste : un nombre, ou une fonction de l'échantillon.
-  function strip(resources, side, active, fromOffset, toOffset, yFrom, yTo, colourAt, polygonOffset) {
-    const count = road.points.length
-    const sign = side === 'right' ? 1 : -1
-    const corner = (index, offset, y) => {
-      const point = offsetPoint(road, index, sign * offset)
-      return [point.x, level(index) + (typeof y === 'function' ? y(index) : y), point.z]
-    }
-    const positions = []
-    const colours = []
-    for (let index = 0; index < count; index += 1) {
-      const next = (index + 1) % count
-      if (!active(index) || !active(next)) continue
-      const a = corner(index, fromOffset(index), yFrom)
-      const b = corner(index, toOffset(index), yTo)
-      const c = corner(next, fromOffset(next), yFrom)
-      const d = corner(next, toOffset(next), yTo)
-      positions.push(...a, ...b, ...c, ...b, ...d, ...c)
-      const colour = colourAt(index)
-      for (let vertex = 0; vertex < 6; vertex += 1) colours.push(colour.r, colour.g, colour.b)
-    }
-    if (positions.length === 0) return null
-    const geometry = new THREE.BufferGeometry()
-    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
-    geometry.setAttribute('color', new THREE.Float32BufferAttribute(colours, 3))
-    geometry.computeVertexNormals()
-    const material = new THREE.MeshStandardMaterial({
-      vertexColors: true,
-      roughness: 1,
-      side: THREE.DoubleSide,
-      polygonOffset: true,
-      polygonOffsetFactor: -polygonOffset,
-      polygonOffsetUnits: -polygonOffset,
-    })
-    resources.push(geometry, material)
-    const mesh = new THREE.Mesh(geometry, material)
-    mesh.receiveShadow = true
-    return mesh
-  }
-
-  // Vibreurs rouge et blanc, gravier et murs de pneus (lib/circuit-features.js).
-  function addFeatures(group, resources, edge) {
-    const features = getFeatures(road)
-    const red = new THREE.Color(KERB_RED)
-    const white = new THREE.Color(LINE_COLOUR)
-    const gravel = new THREE.Color(GRAVEL_COLOUR)
-    const light = new THREE.Color(WALL_LIGHT)
-    const dark = new THREE.Color(WALL_DARK)
-    const terrain = getTerrain(road)
-    const retaining = new THREE.Color(RETAINING_COLOUR)
-    for (const side of ['left', 'right']) {
-      const sign = side === 'right' ? 1 : -1
-      // En relief, la barrière dépasse toujours du talus (aucun obstacle invisible), avec du béton uni entre elle et la
-      // piste quand le sol s'en écarte, au-dessus comme au-dessous.
-      const walled = (i) => features.wall[side][i] > 0
-      const wallAt = (i) => features.wall[side][i]
-      const drop = road.points.map((_, i) => {
-        if (!terrain || !walled(i)) return 0
-        const spot = offsetPoint(road, i, sign * wallAt(i))
-        return terrain.surface(spot.x, spot.z) - level(i)
-      })
-      const sink = terrain ? 0.3 : 0 // la barrière s'enfonce un peu sous le sol en relief
-      const barrierFoot = (i) => Math.max(0, drop[i]) - sink
-      const barrierTop = (i) => Math.max(0, drop[i]) + WALL_HEIGHT
-      const faceFoot = (i) => Math.min(0, drop[i]) - sink
-      const outer = (i) => pavedEdge(road, i, side)
-      const feet = terrain ? road.points.map((_, i) => skirtFoot(road, i, sign * outer(i))) : []
-      const parts = [
-        strip(resources, side, (i) => features.gravel[side][i] > 0, () => edge, (i) => edge + KERB_WIDTH + features.gravel[side][i], 0.012, 0.012, () => gravel, 1),
-        strip(resources, side, (i) => features.kerb[side][i] > 0, () => edge, () => edge + KERB_WIDTH, 0.05, 0.05, (i) => (i % 2 ? red : white), 6),
-        strip(resources, side, walled, wallAt, wallAt, barrierFoot, barrierTop, (i) => (Math.floor(i / 2) % 2 ? light : dark), 0),
-        terrain && strip(resources, side, walled, wallAt, wallAt, faceFoot, barrierFoot, () => retaining, 0),
-        terrain && strip(resources, side, (i) => feet[i] !== null, outer, outer, 0.012, (i) => feet[i] - level(i), () => retaining, 0),
-      ]
-      for (const part of parts) if (part) group.add(part)
-    }
-  }
+  // Ambiance choisie par l'adresse (?ciel=jour, soir ou couvert) : voir lib/ambiance.js.
+  const ambiance = AMBIANCES[pickAmbiance(window.location.search)]
+  const fill = new THREE.DirectionalLight(FILL_LIGHT.colour, ambiance.fill)
+  const skylight = new THREE.HemisphereLight(ambiance.ambient.sky, ambiance.ambient.ground, ambiance.ambient.intensity)
+  const shadows = window.matchMedia?.('(pointer: coarse)').matches ? SHADOWS.touch : SHADOWS.fine
+  const sunDirection = new THREE.Vector3(0, 1, 0)
+  const lightRight = new THREE.Vector3()
+  const lightUp = new THREE.Vector3()
+  const focus = new THREE.Vector3()
+  let showroomLook = null // ce que la conduite a changé dans la scène du garage, à restaurer en sortant
+  let contact = null // ombre de contact sous la voiture, créée à la première conduite
 
   function buildVisuals() {
     const resources = []
     const group = new THREE.Group()
     const terrain = getTerrain(road)
-    if (terrain) group.add(buildTerrainMesh(THREE, terrain, road.relief, GROUND_MARGIN, resources))
-    else {
-      const groundGeometry = new THREE.CircleGeometry(road.bounds.radius + GROUND_MARGIN, 64)
-      const groundMaterial = new THREE.MeshStandardMaterial({ color: GRASS_COLOUR, roughness: 1 })
-      resources.push(groundGeometry, groundMaterial)
-      const ground = new THREE.Mesh(groundGeometry, groundMaterial)
-      ground.rotation.x = -Math.PI / 2
-      ground.receiveShadow = true
-      group.add(ground)
-    }
-
-    const half = road.width / 2
-    group.add(ribbon(resources, -half, half, 0.02, ASPHALT_COLOUR, 2))
-    group.add(ribbon(resources, half - 1.1, half - 0.6, 0.04, LINE_COLOUR, 4)) // bords de piste
-    group.add(ribbon(resources, -half + 0.6, -half + 1.1, 0.04, LINE_COLOUR, 4))
-
-    addFeatures(group, resources, half)
-    group.add(buildScenery(THREE, road, resources))
-
-    // Ligne de départ : un trait blanc en travers de la piste, à l'abscisse 0.
-    const start = pointAt(road, 0)
-    const lineGeometry = new THREE.BoxGeometry(1.4, 0.02, road.width - 1.2)
-    const lineMaterial = new THREE.MeshStandardMaterial({ color: LINE_COLOUR, roughness: 1 })
-    resources.push(lineGeometry, lineMaterial)
-    const line = new THREE.Mesh(lineGeometry, lineMaterial)
-    line.rotation.set(0, start.heading, Math.atan(gradeAt(road, 0)), 'YZX')
-    line.position.set(start.x, heightAt(road, 0) + 0.05, start.z)
-    line.receiveShadow = true
-    group.add(line)
-
+    const groundY = (x, z) => terrain?.surface(x, z) ?? 0
+    const heading = pointAt(road, 0).heading
+    const surfaces = buildRoad(THREE, road, resources)
+    const buildings = buildScenery(THREE, road, resources)
+    const trees = buildTrees(THREE, road, groundY, ambiance.fog.far, resources)
+    const sky = buildSky(THREE, ambiance, heading, resources)
+    group.add(sky.group, surfaces.group, buildings.group, trees.group)
     group.visible = active
     scene.add(group)
-    return { group, resources }
+    return {
+      group,
+      resources,
+      sun: sunVector(ambiance.sun, heading),
+      // À chaque image : le ciel suit la caméra, les détails lointains sont retirés.
+      update(view) {
+        sky.follow(view, surfaces.level)
+        surfaces.update(view)
+        buildings.update(view)
+        trees.update(view)
+      },
+    }
   }
 
-  // Les équipements et le décor se calculent en quelques centaines de millisecondes sur un grand circuit : on les
-  // prépare pendant que la page est au repos, pour que « Conduire » ne fige pas l'écran.
-  function warmUp(target) {
-    const run = () => {
-      getFeatures(target)
-      getScenery(target)
-      getTerrain(target)
+  // Ciel, brume, soleil et ombres de la conduite, posés sur la scène du garage puis retirés.
+  function enterAtmosphere() {
+    showroomLook = {
+      background: scene.background,
+      fog: scene.fog,
+      colour: sun.color.clone(),
+      intensity: sun.intensity,
+      bias: sun.shadow.bias,
+      normalBias: sun.shadow.normalBias,
+      mapSize: sun.shadow.mapSize.clone(),
     }
-    if (typeof requestIdleCallback === 'function') requestIdleCallback(run, { timeout: 3000 })
-    else setTimeout(run, 300)
+    scene.background = new THREE.Color(ambiance.fog.colour)
+    scene.fog = new THREE.Fog(ambiance.fog.colour, ambiance.fog.near, ambiance.fog.far)
+    scene.add(fill, skylight)
+    contact ??= buildContact()
+    rig.add(contact.mesh)
+    sun.color.set(ambiance.sun.colour)
+    sun.intensity = ambiance.sun.intensity
+    sun.shadow.bias = -0.00005
+    sun.shadow.normalBias = 0.04
+    setShadowMap(shadows.map, shadows.map)
+    const { half } = shadows
+    Object.assign(sun.shadow.camera, { left: -half, right: half, top: half, bottom: -half, near: 1, far: SHADOWS.distance * 2 })
+    sun.shadow.camera.updateProjectionMatrix()
+  }
+
+  function leaveAtmosphere() {
+    scene.background = showroomLook.background
+    scene.fog = showroomLook.fog
+    scene.remove(fill, skylight)
+    rig.remove(contact.mesh)
+    sun.color.copy(showroomLook.colour)
+    sun.intensity = showroomLook.intensity
+    sun.shadow.bias = showroomLook.bias
+    sun.shadow.normalBias = showroomLook.normalBias
+    setShadowMap(showroomLook.mapSize.x, showroomLook.mapSize.y)
+    Object.assign(sun.shadow.camera, showroomShadow)
+    sun.shadow.camera.updateProjectionMatrix()
+  }
+
+  function buildContact() {
+    const texture = contactTexture(THREE)
+    const geometry = new THREE.PlaneGeometry(7.4, 3.5).rotateX(-Math.PI / 2)
+    const material = new THREE.MeshBasicMaterial({ map: texture, transparent: true, opacity: 0.45, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -8, polygonOffsetUnits: -8 })
+    const mesh = new THREE.Mesh(geometry, material)
+    mesh.position.y = 0.04
+    return { mesh, resources: [texture, geometry, material] }
+  }
+
+  // La carte d'ombre doit être recréée quand sa taille change.
+  function setShadowMap(width, height) {
+    sun.shadow.mapSize.set(width, height)
+    sun.shadow.map?.dispose()
+    sun.shadow.map = null
+  }
+
+  // Les équipements, le décor et ses dessins se préparent au repos, par petites tranches (quelques millisecondes
+  // chacune), pour que ni la page ni le premier « Conduire » ne se figent. Ce qui reste est terminé au clic.
+  function warmUp(target) {
+    const steps = (function* () {
+      for (const compute of [getFeatures, getScenery, getTerrain, barrierLayout, groveTrees, racingLine]) {
+        compute(target)
+        yield
+      }
+      yield* textureWarmUps()
+      yield* warmSky(ambiance)
+    })()
+    const later = (run) => {
+      if (typeof requestIdleCallback === 'function') requestIdleCallback(run, { timeout: 100 })
+      else setTimeout(run, 40) // Safari
+    }
+    const run = (deadline) => {
+      if (disposed) return
+      const from = performance.now()
+      const free = () => (deadline ? deadline.timeRemaining() > WARM_SPARE : performance.now() - from < WARM_SPARE)
+      do {
+        if (steps.next().done) return
+      } while (free())
+      later(run)
+    }
+    later(run)
   }
 
   function disposeVisuals() {
@@ -367,6 +321,7 @@ export function createDriveMode({ THREE, scene, camera, controls, canvas, sun, r
     fill.position.copy(camera.position).y += FILL_LIGHT.lift
     fill.target.position.set(state.x, floor, state.z)
     fill.target.updateMatrixWorld()
+    visuals?.update(camera)
   }
 
   // Secousse sur vibreur : la voiture et la caméra tressautent, d'autant plus que la voiture va vite.
@@ -381,10 +336,25 @@ export function createDriveMode({ THREE, scene, camera, controls, canvas, sun, r
     rig.position.set(state.x, floor + Math.abs(shake) * 0.5, state.z)
     // Cap, puis tangage (nez vers +x), puis roulis dans la pente.
     rig.rotation.set(Math.atan(ground?.left ?? 0), state.heading, Math.atan(ground?.forward ?? 0), 'YZX')
-    // L'ombre ne couvre que ±14 m autour de la lumière : elle suit la voiture.
-    sun.target.position.copy(rig.position)
+    placeSun(floor)
+  }
+
+  // La zone ombrée suit la voiture, un peu en avant. Elle se déplace par pas d'un point de la carte d'ombre : sans
+  // cela, les bords des ombres scintillent en roulant.
+  function placeSun(floor) {
+    sunDirection.set(visuals.sun.x, visuals.sun.y, visuals.sun.z)
+    const lead = shadows.half * SHADOWS.lead
+    focus.set(state.x + Math.cos(state.heading) * lead, floor, state.z - Math.sin(state.heading) * lead)
+    lightRight.set(sunDirection.z, 0, -sunDirection.x).normalize()
+    lightUp.crossVectors(sunDirection, lightRight)
+    const texel = (shadows.half * 2) / shadows.map
+    for (const axis of [lightRight, lightUp]) {
+      const along = focus.dot(axis)
+      focus.addScaledVector(axis, Math.round(along / texel) * texel - along)
+    }
+    sun.target.position.copy(focus)
     sun.target.updateMatrixWorld()
-    sun.position.set(state.x + 4, floor + 9, state.z + 5)
+    sun.position.copy(focus).addScaledVector(sunDirection, SHADOWS.distance)
   }
 
   function sectorsView() {
@@ -437,6 +407,8 @@ export function createDriveMode({ THREE, scene, camera, controls, canvas, sun, r
     saveBest(browserStorage(), bestKey(), { time: state.bestLap, sectors: state.bestSectors, profile: state.bestProfile })
   }
 
+  warmUp(road) // la piste affichée par défaut
+
   return {
     get active() {
       return active
@@ -479,9 +451,7 @@ export function createDriveMode({ THREE, scene, camera, controls, canvas, sun, r
       visuals.group.visible = true
       controls.enabled = false
       canvas.style.touchAction = 'none'
-      scene.add(fill)
-      Object.assign(sun.shadow.camera, { left: -14, right: 14, top: 14, bottom: -14, far: 60 })
-      sun.shadow.camera.updateProjectionMatrix()
+      enterAtmosphere()
       Object.assign(camera, DRIVE_CLIP)
       camera.updateProjectionMatrix()
       placeCarAndSun()
@@ -502,14 +472,12 @@ export function createDriveMode({ THREE, scene, camera, controls, canvas, sun, r
       // Retour au showroom : voiture à l'origine, vue par défaut, rotation à la souris de nouveau possible.
       rig.position.set(0, 0, 0)
       rig.rotation.set(0, 0, 0)
-      Object.assign(sun.shadow.camera, showroomShadow)
-      sun.shadow.camera.updateProjectionMatrix()
+      leaveAtmosphere()
       Object.assign(camera, showroomClip)
       camera.updateProjectionMatrix()
       sun.target.position.set(0, 0, 0)
       sun.target.updateMatrixWorld()
       sun.position.set(4, 9, 5)
-      scene.remove(fill)
       controls.enabled = true
       canvas.style.touchAction = 'pan-y'
       camera.position.set(...DEFAULT_VIEW.position)
@@ -540,10 +508,12 @@ export function createDriveMode({ THREE, scene, camera, controls, canvas, sun, r
     // La boucle d'affichage s'arrête (onglet caché, scène hors écran) : le moteur se tait avec elle.
     setPaused: audio.setPaused,
     dispose() {
+      disposed = true
       if (active) listen(false)
       active = false
       audio.dispose()
       disposeVisuals()
+      for (const resource of contact?.resources ?? []) resource.dispose()
     },
   }
 }
