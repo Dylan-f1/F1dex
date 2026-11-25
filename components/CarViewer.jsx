@@ -5,6 +5,7 @@ import { buildCircuitTrack } from '@/lib/car-drive'
 import { CAMERA_VIEWS } from '@/lib/car-camera'
 import { countryNameFr } from '@/lib/format'
 import { liveryFor } from '@/lib/liveries'
+import { readSound, subscribeSound, writeSound } from '@/lib/sound-preference'
 import DriveHud from './DriveHud'
 import { useCarScene } from './use-car-scene'
 
@@ -21,6 +22,7 @@ function subscribeReducedMotion(notify) {
 const readReducedMotion = () => window.matchMedia(REDUCED_MOTION_QUERY).matches
 // Côté serveur on suppose « mouvement réduit » : la rotation ne démarre jamais sans que le navigateur l'ait permis.
 const readReducedMotionOnServer = () => true
+const readSoundOnServer = () => true
 
 // Plein écran : l'API du navigateur quand elle existe, sinon (iPhone) un « plein cadre » qui couvre la page.
 const fullscreenElement = () => document.fullscreenElement ?? document.webkitFullscreenElement ?? null
@@ -38,6 +40,7 @@ export default function CarViewer({ teams, circuits = [] }) {
   const team = teams.find((candidate) => candidate.name === teamName) ?? teams[0] ?? NEUTRAL_TEAM
   const autoRotate = rotationChoice ?? !prefersReducedMotion
   const livery = useMemo(() => liveryFor(team), [team])
+  const soundOn = useSyncExternalStore(subscribeSound, readSound, readSoundOnServer)
 
   // Circuit : '' = circuit fictif. Les tracés sont chargés à la demande (une fois chacun) ; la voiture ne change
   // de piste qu'une fois le nouveau tracé arrivé, pour ne pas redémarrer deux fois.
@@ -78,6 +81,7 @@ export default function CarViewer({ teams, circuits = [] }) {
     autoRotate,
     road,
     assist,
+    sound: soundOn,
   })
 
   function pickCircuit(event) {
@@ -138,7 +142,8 @@ export default function CarViewer({ teams, circuits = [] }) {
     }
   }
 
-  // Touche F pour (dé)passer en plein écran pendant la conduite ; Échap quitte aussi le plein cadre (sans API).
+  // Pendant la conduite : F pour (dé)passer en plein écran, M pour couper ou remettre le son. Échap quitte aussi le
+  // plein cadre (sans API).
   const toggleFullscreenRef = useRef(toggleFullscreen)
   useEffect(() => {
     toggleFullscreenRef.current = toggleFullscreen
@@ -149,6 +154,10 @@ export default function CarViewer({ teams, circuits = [] }) {
       if (event.code === 'KeyF' && driving) {
         event.preventDefault()
         toggleFullscreenRef.current()
+      } else if (driving && event.key?.toLowerCase() === 'm') {
+        // `key` et non `code` : sur un clavier AZERTY, la touche M n'est pas à la place du M américain.
+        event.preventDefault()
+        writeSound(!readSound())
       } else if (event.code === 'Escape' && pseudoFullscreen) setPseudoFullscreen(false)
     }
     // Phase de capture : Échap quitte aussi la conduite, ce qui re-rend le composant et retirerait cet écouteur avant
@@ -194,7 +203,7 @@ export default function CarViewer({ teams, circuits = [] }) {
             role="img"
             aria-label={
               driving
-                ? `Conduite de la monoplace ${team.name} sur ${activeCircuit ? `le circuit ${activeCircuit.name}` : 'une piste fictive'}. Flèches ou Z Q S D pour piloter, Échap pour quitter.`
+                ? `Conduite de la monoplace ${team.name} sur ${activeCircuit ? `le circuit ${activeCircuit.name}` : 'une piste fictive'}. Flèches ou Z Q S D pour piloter, M pour le son, Échap pour quitter.`
                 : `Monoplace de F1 en 3D aux couleurs de ${team.name}. Glisser pour la faire tourner, molette pour s'approcher.`
             }
             className={isFullscreen ? 'h-dvh' : `${driving ? 'h-[460px]' : 'h-[340px]'} min-[700px]:h-[540px]`}
@@ -208,17 +217,24 @@ export default function CarViewer({ teams, circuits = [] }) {
           )}
           {driving && <DriveHud hud={hud} onTouch={setTouch} onQuit={stopDriving} />}
           {(driving || isFullscreen) && (
-            <button
-              type="button"
-              aria-label={isFullscreen ? 'Quitter le plein écran' : 'Passer en plein écran'}
-              aria-pressed={isFullscreen}
-              onClick={toggleFullscreen}
-              className="absolute top-3 left-1/2 flex size-10 -translate-x-1/2 items-center justify-center bg-panel/90 text-ink [-webkit-tap-highlight-color:transparent] hover:bg-ink hover:text-bg active:bg-ink active:text-bg"
-            >
-              <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2.2">
-                <path d={isFullscreen ? 'M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5' : 'M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5'} />
-              </svg>
-            </button>
+            // En colonne : sur téléphone, il n'y a la place que d'un bouton entre les deux panneaux du tableau de bord.
+            <div className="absolute top-3 left-1/2 flex -translate-x-1/2 flex-col gap-1.5">
+              <FrameButton
+                label={isFullscreen ? 'Quitter le plein écran' : 'Passer en plein écran'}
+                pressed={isFullscreen}
+                onClick={toggleFullscreen}
+                icon={isFullscreen ? 'M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5' : 'M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5'}
+              />
+              {driving && (
+                // L'icône (haut-parleur actif ou barré) suffit à dire l'état : pas d'inversion du bouton.
+                <FrameButton
+                  label="Son du moteur"
+                  pressed={soundOn}
+                  onClick={() => writeSound(!soundOn)}
+                  icon={`M4 9.5h3.5L13 5v14l-5.5-4.5H4z${soundOn ? 'M16.5 9a4.5 4.5 0 0 1 0 6M19 6.5a8 8 0 0 1 0 11' : 'M16 9.5l5 5M21 9.5l-5 5'}`}
+                />
+              )}
+            </div>
           )}
           <div className="pointer-events-none absolute bottom-4 left-0 flex max-w-full items-stretch">
             <span
@@ -299,6 +315,9 @@ export default function CarViewer({ teams, circuits = [] }) {
           >
             Plein écran{driving ? ' (F)' : ''}
           </button>
+          <button type="button" className={BUTTON_CLASS} aria-pressed={soundOn} onClick={() => writeSound(!soundOn)}>
+            Son du moteur{driving ? ' (M)' : ''}
+          </button>
           <p role="status" className="basis-full text-[14px] text-mute">
             {circuits.length === 0
               ? 'Circuits indisponibles pour le moment (calendrier injoignable) : seul le circuit fictif est proposé. '
@@ -309,7 +328,7 @@ export default function CarViewer({ teams, circuits = [] }) {
         </div>
         <p className="mt-3 max-w-[70ch] text-[14px] text-mute">
           {driving
-            ? 'Flèches ou Z Q S D pour piloter (sur écran tactile : les boutons à l’écran), R pour revenir sur la piste, F pour le plein écran, Échap pour quitter. Tour supprimé si les quatre roues sortent de la piste. Vibreurs, gravier (il freine fort), murs de pneus (ils te remettent sur la piste), tribunes, bâtiment des stands, panneaux de freinage et arbres sont placés d’après la forme du tracé, pas d’après le vrai circuit. Secteurs : trois tiers égaux du tour, pas les secteurs officiels. Départ approximatif. Le braquage des roues avant est amplifié à l’écran pour rester visible.'
+            ? 'Flèches ou Z Q S D pour piloter (sur écran tactile : les boutons à l’écran), R pour revenir sur la piste, F pour le plein écran, M pour le son, Échap pour quitter. Tour supprimé si les quatre roues sortent de la piste. Vibreurs, gravier (il freine fort), murs de pneus (ils te remettent sur la piste), tribunes, bâtiment des stands, panneaux de freinage et arbres sont placés d’après la forme du tracé, pas d’après le vrai circuit. Secteurs : trois tiers égaux du tour, pas les secteurs officiels. Départ approximatif. Son du moteur synthétisé (sur iPhone, le mode silencieux le coupe sans doute aussi). Le braquage des roues avant est amplifié à l’écran pour rester visible.'
             : source === 'fallback'
               ? 'Le modèle 3D n’a pas pu être chargé : voici une monoplace stylisée construite en code, aux proportions d’une F1 de 2025. Ce n’est pas la reproduction d’une voiture précise.'
               : 'Modèle 3D généré par IA à partir d’une image de F1 générique, sans logo ni écurie réelle : ce n’est pas la reproduction d’une voiture précise. Les roues sont construites en code. Les couleurs de chaque écurie (carrosserie, ailerons, liserés) sont approchées, sans logo ni sponsor.'}
@@ -346,6 +365,23 @@ export default function CarViewer({ teams, circuits = [] }) {
         )}
       </aside>
     </div>
+  )
+}
+
+// Bouton-icône posé sur la scène 3D.
+function FrameButton({ label, pressed, onClick, icon }) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      aria-pressed={pressed}
+      onClick={onClick}
+      className={`flex size-10 items-center justify-center bg-panel/90 text-ink [-webkit-tap-highlight-color:transparent] hover:bg-ink hover:text-bg active:bg-ink active:text-bg ${FOCUS}`}
+    >
+      <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2.2">
+        <path d={icon} />
+      </svg>
+    </button>
   )
 }
 

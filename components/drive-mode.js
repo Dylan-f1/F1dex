@@ -1,6 +1,6 @@
 // Mode « conduite » du garage : une piste (le circuit fictif ou un vrai circuit), la voiture pilotable au clavier
 // ou au toucher, une caméra qui la suit. Les calculs (physique, tours) sont dans lib/car-drive.js ; ici :
-// l'affichage de la piste, les entrées, la caméra, les roues et l'enregistrement du meilleur tour.
+// l'affichage de la piste, les entrées, la caméra, les roues, le son et l'enregistrement du meilleur tour.
 // Ce module ne crée rien tant que la conduite n'a pas été lancée une première fois.
 
 import { DEFAULT_VIEW } from '@/lib/car-camera'
@@ -10,7 +10,9 @@ import { DRIVE, buildDriveTrack, createDriveState, pointAt, stepDrive } from '@/
 import { KERB_WIDTH, WALL_HEIGHT, getFeatures } from '@/lib/circuit-features'
 import { getScenery } from '@/lib/circuit-scenery'
 import { offsetLine, offsetPoint } from '@/lib/drive-track'
+import { ENGINE_SOUND, engineSound, soundRevs } from '@/lib/engine-sound'
 import { buildScenery } from './drive-scenery'
+import { createEngineAudio } from './engine-audio'
 
 // Couleurs : les jetons de la DA (voir app/globals.css) — asphalte `panel`, trait blanc `ink`.
 const GRASS_COLOUR = '#10231a'
@@ -74,6 +76,8 @@ export function createDriveMode({ THREE, scene, camera, controls, canvas, sun, r
   let noticeText = ''
   let seenCrashes = 0
   let assist = DEFAULT_ASSIST
+  const audio = createEngineAudio()
+  let revs = ENGINE_SOUND.idleRpm // régime entendu
   const keys = { throttle: false, brake: false, left: false, right: false }
   const touch = { throttle: 0, brake: 0, steer: 0 }
   // Réglages du showroom, à restaurer en sortant (on ne copie que ces champs : le reste de la caméra est en lecture seule).
@@ -239,6 +243,7 @@ export function createDriveMode({ THREE, scene, camera, controls, canvas, sun, r
     resetRequested = false
     lastTime = null
     cameraHeading = state.heading
+    revs = ENGINE_SOUND.idleRpm
     wheels.reset()
   }
 
@@ -422,6 +427,7 @@ export function createDriveMode({ THREE, scene, camera, controls, canvas, sun, r
       placeCarAndSun()
       placeCamera(true, 0)
       listen(true)
+      audio.start() // appelé depuis le clic « Conduire » : le navigateur autorise le son
       emitHud(0, true)
     },
     stop() {
@@ -429,6 +435,7 @@ export function createDriveMode({ THREE, scene, camera, controls, canvas, sun, r
       active = false
       listen(false)
       releaseInputs()
+      audio.stop()
       wheels.reset()
       visuals.group.visible = false
       for (const object of showroom) object.visible = true
@@ -456,6 +463,8 @@ export function createDriveMode({ THREE, scene, camera, controls, canvas, sun, r
       saveNewBest()
       const frameTime = Math.min(dt, DRIVE.maxStep)
       wheels.update(state, frameTime)
+      revs = soundRevs(revs, { phase: state.phase, rpm: state.rpm, gear: state.gear, throttle: input.throttle }, frameTime)
+      audio.update(engineSound({ rpm: revs, throttle: input.throttle, speed: state.speed, shifting: state.shift > 0 }))
       const shake = bump(now)
       placeCarAndSun(shake)
       placeCamera(false, frameTime, shake)
@@ -464,9 +473,15 @@ export function createDriveMode({ THREE, scene, camera, controls, canvas, sun, r
     setTouch(next) {
       Object.assign(touch, next)
     },
+    setSound(on) {
+      audio.setMuted(!on)
+    },
+    // La boucle d'affichage s'arrête (onglet caché, scène hors écran) : le moteur se tait avec elle.
+    setPaused: audio.setPaused,
     dispose() {
       if (active) listen(false)
       active = false
+      audio.dispose()
       disposeVisuals()
     },
   }

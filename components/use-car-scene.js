@@ -89,6 +89,7 @@ function createScene({
   autoRotate,
   road,
   assist,
+  sound,
   onStatus,
   onSource,
   onHud,
@@ -306,6 +307,7 @@ ${LIVERY_FRAGMENT_GLSL}`)
   })
 
   drive.setAssist(assist)
+  drive.setSound(sound)
   drive.setRoad(road)
 
   // Taille : suit le conteneur.
@@ -352,6 +354,7 @@ ${LIVERY_FRAGMENT_GLSL}`)
     schedule()
   }
   function schedule() {
+    drive.setPaused(!(isVisible && isTabShown))
     if (!frame && isVisible && isTabShown) frame = requestAnimationFrame(render)
   }
   const intersectionObserver = new IntersectionObserver(([entry]) => {
@@ -383,6 +386,7 @@ ${LIVERY_FRAGMENT_GLSL}`)
     },
     setRoad: drive.setRoad,
     setAssist: drive.setAssist,
+    setSound: drive.setSound,
     setTouch: drive.setTouch,
     dispose() {
       disposed = true
@@ -404,11 +408,11 @@ ${LIVERY_FRAGMENT_GLSL}`)
 
 // Monte la scène three.js dans le conteneur renvoyé (ref) et expose des commandes. three.js est chargé
 // à la demande : la page garage seule paie son poids, pas le reste du site.
-export function useCarScene({ livery, autoRotate, road, assist }) {
+export function useCarScene({ livery, autoRotate, road, assist, sound }) {
   const containerRef = useRef(null)
   const sceneRef = useRef(null)
   // Valeurs courantes lues au moment où la scène se monte (le chargement est asynchrone).
-  const latest = useRef({ livery, autoRotate, road, assist })
+  const latest = useRef({ livery, autoRotate, road, assist, sound })
   const [status, setStatus] = useState('loading')
   // 'model' (modèle 3D reconstruit) ou 'fallback' (voiture en formes simples) : sert à la légende sous la visionneuse.
   const [source, setSource] = useState('model')
@@ -417,12 +421,13 @@ export function useCarScene({ livery, autoRotate, road, assist }) {
   const [hud, setHud] = useState(null)
 
   useEffect(() => {
-    latest.current = { livery, autoRotate, road, assist }
+    latest.current = { livery, autoRotate, road, assist, sound }
     sceneRef.current?.setLivery(livery)
     sceneRef.current?.setAutoRotate(autoRotate)
     sceneRef.current?.setRoad(road)
     sceneRef.current?.setAssist(assist)
-  }, [livery, autoRotate, road, assist])
+    sceneRef.current?.setSound(sound)
+  }, [livery, autoRotate, road, assist, sound])
 
   useEffect(() => {
     let cancelled = false
@@ -448,6 +453,7 @@ export function useCarScene({ livery, autoRotate, road, assist }) {
           autoRotate: latest.current.autoRotate,
           road: latest.current.road,
           assist: latest.current.assist,
+          sound: latest.current.sound,
           onStatus: setStatus,
           onSource: setSource,
           onHud: setHud,
