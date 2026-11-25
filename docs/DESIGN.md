@@ -57,9 +57,12 @@ Page `/garage` : une monoplace de F1 en 3D, aux couleurs de l'écurie. Même lan
 - **Aucune illustration IA n'est affichée** : l'image générée (FLUX.1-schnell, Apache 2.0) ne sert que d'entrée à la reconstruction (TRELLIS, MIT) ; seul le modèle 3D est montré, et il est annoncé comme généré par IA sous la visionneuse.
 - **Pas d'écurie réelle ni de marque** : image de F1 neutre, sans logo ; les livrées sont approchées en 4 zones par écurie (`lib/liveries.js` : carrosserie, ailerons, liserés, arête du capot) et appliquées par un shader sur la carrosserie seulement (pneus, carbone et bandes de gomme jaunes inchangés). Le liseré de la liste et le bandeau gardent la couleur OpenF1.
 - **Pas de rendu « 3D glossy »** : matière mate (`roughness 0.7`, `metalness 0`), pas de carte d'environnement, pas de halo. Le sol et le bandeau gardent la DA « Retransmission ».
-- **Limites assumées** : proportions un peu ramassées, emblème illisible sur les pontons, pas de numéro ni de sponsor, teinte parfois tachetée sur les zones sombres. Hunyuan3D-2 (meilleure qualité vue) écarté : sa licence exclut l'UE. Détails et paramètres de génération dans `docs/DECISIONS.md`.
+- **Proportions corrigées au chargement (2026-11-25)** : 2 m de large, 3,6 m d’empattement ; bords de livrée nets, faux emblème et faux numéro recouverts.
+- **Limites assumées** : surfaces cabossées, arrière déchiqueté, voiture un peu haute, pas de numéro ni de sponsor. Hunyuan3D-2 (meilleure qualité vue) écarté : sa licence exclut l'UE. Détails et paramètres de génération dans `docs/DECISIONS.md`.
 
 La voiture en formes simples (`lib/car-model.js`) reste **en repli** si le `.glb` ne charge pas (la légende le dit alors). Caméras dans `lib/car-camera.js`, scène dans `components/use-car-scene.js`.
+
+**Voiture en code, à comparer (2026-11-25)** : `/garage?voiture=code` affiche une monoplace entièrement construite en code (surfaces lisses, livrée en quatre zones nettes, matières satinées, sans logo). **Choix entre les deux voitures : à faire par Dylan.**
 
 **Conduite (2026-11-24)** : bouton « Conduire » dans la rangée de commandes de la visionneuse. En conduite, les angles de caméra et la rotation automatique sont désactivés, le texte d'aide remplace la légende, et la visionneuse passe à 460 px de haut sur mobile pour laisser la voiture au-dessus des boutons tactiles. Tableau de bord superposé : vitesse en grand (haut gauche), tour en cours et meilleur tour en violet (haut droit), « Hors piste » sur fond jaune. Piste sans vibreurs ni décor : asphalte, deux traits blancs et une ligne de départ, comme la carte du circuit. Détails et limites dans `docs/DECISIONS.md`.
 
