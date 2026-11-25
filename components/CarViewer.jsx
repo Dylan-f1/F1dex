@@ -70,10 +70,11 @@ export default function CarViewer({ teams, circuits = [] }) {
   useEffect(() => {
     if (!circuitKey || loaded[circuitKey]) return undefined
     const controller = new AbortController()
-    fetch(`/api/circuit/${circuitKey}`, { signal: controller.signal })
+    // `v=2` : la réponse contient le relief ; une ancienne réponse gardée par le navigateur ne doit pas resservir.
+    fetch(`/api/circuit/${circuitKey}?v=2`, { signal: controller.signal })
       .then((response) => (response.ok ? response.json() : Promise.reject(new Error(String(response.status)))))
       .then((data) => {
-        const built = buildCircuitTrack(data.points, { key: circuitKey })
+        const built = buildCircuitTrack(data.points, { key: circuitKey, relief: data.relief })
         if (!built) throw new Error('tracé inutilisable')
         setLoaded((previous) => ({ ...previous, [circuitKey]: { road: built } }))
         setActiveKey(circuitKey)
@@ -408,7 +409,7 @@ export default function CarViewer({ teams, circuits = [] }) {
         </div>
         <p className="mt-3 max-w-[70ch] text-[14px] text-mute max-[1001px]:max-w-[56ch]">
           {driving
-            ? 'Flèches ou Z Q S D pour piloter (sur écran tactile : joystick à gauche pour tourner, frein et gaz à droite), R pour revenir sur la piste, F pour le plein écran, M pour le son, Échap pour quitter. Tour supprimé si les quatre roues sortent de la piste. Vibreurs, gravier (il freine fort), murs de pneus (ils te remettent sur la piste), tribunes, bâtiment des stands, panneaux de freinage et arbres sont placés d’après la forme du tracé, pas d’après le vrai circuit. Secteurs : trois tiers égaux du tour, pas les secteurs officiels. Départ approximatif. Son du moteur synthétisé (sur iPhone, le mode silencieux le coupe sans doute aussi). Le braquage des roues avant est amplifié à l’écran pour rester visible.'
+            ? 'Flèches ou Z Q S D pour piloter (sur écran tactile : joystick à gauche pour tourner, frein et gaz à droite), R pour revenir sur la piste, F pour le plein écran, M pour le son, Échap pour quitter. Tour supprimé si les quatre roues sortent de la piste. Vibreurs, gravier (il freine fort), murs de pneus (ils te remettent sur la piste), tribunes, bâtiment des stands, panneaux de freinage et arbres sont placés d’après la forme du tracé, pas d’après le vrai circuit. Secteurs : trois tiers égaux du tour, pas les secteurs officiels. Départ approximatif. Relief : altitude mesurée par OpenF1 sur les vrais circuits, inventée sur le circuit fictif ; lissée et sans dévers. Son du moteur synthétisé (sur iPhone, le mode silencieux le coupe sans doute aussi). Le braquage des roues avant est amplifié à l’écran pour rester visible.'
             : source === 'fallback'
               ? 'Le modèle 3D n’a pas pu être chargé : voici une monoplace stylisée construite en code, aux proportions d’une F1 de 2025. Ce n’est pas la reproduction d’une voiture précise.'
               : 'Modèle 3D généré par IA à partir d’une image de F1 générique, sans logo ni écurie réelle : ce n’est pas la reproduction d’une voiture précise. Les roues sont construites en code. Les couleurs de chaque écurie (carrosserie, ailerons, liserés) sont approchées, sans logo ni sponsor.'}

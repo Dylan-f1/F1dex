@@ -3,6 +3,8 @@
 // un circuit entier, pour rester fluide sur un téléphone.
 
 import { GANTRY, STAND_DEPTH, getScenery } from '@/lib/circuit-scenery'
+import { heightAt } from '@/lib/relief'
+import { getTerrain } from '@/lib/terrain'
 
 // Couleurs de scène (pas des jetons d'interface). Les rouges et blancs reprennent `tyre-soft` et `ink`.
 const CONCRETE = '#2a3240'
@@ -12,9 +14,12 @@ const RED = '#da291c'
 const GREY = '#6b7585'
 const CROWD_PALETTE = ['#da291c', '#eef1f5', '#ffd100', '#9aa5b5', '#3a5bd9', '#ff8700', '#2b3442']
 const RISER = 0.8 // m de hauteur par rang de gradins
+// En relief : les longues constructions sont découpées en tronçons posés chacun à son altitude, avec des fondations.
+const CHUNK = { stand: 15, pit: 20 } // m
+const FOOTING = 2.5 // m sous le sol
 
 // Boîtes assemblées en une seule géométrie. Chaque élément : { w, h, d, x, y, z (centre, repère local), colour,
-// origin: { x, z, rotation } }. Avec `tileMetres`, les coordonnées de texture suivent les dimensions réelles (la
+// origin: { x, y (altitude, 0 par défaut), z, rotation } }. Avec `tileMetres`, les coordonnées de texture suivent les dimensions réelles (la
 // texture se répète tous les `tileMetres` mètres, sans étirement).
 function mergedBoxes(THREE, items, tileMetres = 0) {
   const positions = []
@@ -24,7 +29,7 @@ function mergedBoxes(THREE, items, tileMetres = 0) {
   const indices = []
   for (const item of items) {
     const box = new THREE.BoxGeometry(item.w, item.h, item.d)
-    const { x: ox, z: oz, rotation } = item.origin
+    const { x: ox, y: oy = 0, z: oz, rotation } = item.origin
     const cos = Math.cos(rotation)
     const sin = Math.sin(rotation)
     const base = positions.length / 3
@@ -35,7 +40,7 @@ function mergedBoxes(THREE, items, tileMetres = 0) {
       const lx = position.getX(vertex) + item.x
       const ly = position.getY(vertex) + item.y
       const lz = position.getZ(vertex) + item.z
-      positions.push(ox + lx * cos + lz * sin, ly, oz - lx * sin + lz * cos)
+      positions.push(ox + lx * cos + lz * sin, oy + ly, oz - lx * sin + lz * cos)
       const nx = normal.getX(vertex)
       const nz = normal.getZ(vertex)
       normals.push(nx * cos + nz * sin, normal.getY(vertex), -nx * sin + nz * cos)
@@ -109,6 +114,20 @@ export function buildScenery(THREE, road, resources) {
   const group = new THREE.Group()
   const scenery = getScenery(road)
   const colour = (hex) => new THREE.Color(hex)
+  const terrain = getTerrain(road)
+  const groundY = (x, z) => terrain?.surface(x, z) ?? 0
+  const footing = terrain ? FOOTING : 0
+  // Point à `along` mètres du centre d'une construction, dans le sens de sa longueur, posé au sol.
+  const placed = (spot, along = 0) => {
+    const x = spot.x + along * Math.cos(spot.rotation)
+    const z = spot.z - along * Math.sin(spot.rotation)
+    return { x, y: groundY(x, z), z }
+  }
+  const chunksOf = (length, most) => {
+    const count = terrain ? Math.ceil(length / most) : 1
+    const size = length / count
+    return Array.from({ length: count }, (_, index) => ({ along: -length / 2 + (index + 0.5) * size, size }))
+  }
   const flatMaterial = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1 })
   resources.push(flatMaterial)
   const addMesh = (geometry, material) => {
@@ -121,19 +140,25 @@ export function buildScenery(THREE, road, resources) {
   const seats = []
   const frames = []
   for (const stand of scenery.stands) {
-    const origin = { x: stand.x, z: stand.z, rotation: stand.rotation }
     const rowDepth = STAND_DEPTH / stand.rows
-    for (let row = 0; row < stand.rows; row += 1) {
-      const height = (row + 1) * RISER
-      seats.push({ w: stand.length, h: height, d: rowDepth, x: 0, y: height / 2, z: -STAND_DEPTH / 2 + (row + 0.5) * rowDepth, colour: colour(WHITE), origin })
+    const top = stand.rows * RISER
+    for (const { along, size } of chunksOf(stand.length, CHUNK.stand)) {
+      const origin = { ...placed(stand, along), rotation: stand.rotation }
+      for (let row = 0; row < stand.rows; row += 1) {
+        const height = (row + 1) * RISER
+        const z = -STAND_DEPTH / 2 + (row + 0.5) * rowDepth
+        seats.push({ w: size, h: height + footing, d: rowDepth, x: 0, y: (height - footing) / 2, z, colour: colour(WHITE), origin })
+      }
+      if (stand.roof) {
+        frames.push({ w: size + (terrain ? 0.1 : 1), h: 0.35, d: STAND_DEPTH * 0.8, x: 0, y: top + 3.4, z: STAND_DEPTH * 0.15, colour: colour(STEEL), origin })
+      }
     }
     if (stand.roof) {
-      const top = stand.rows * RISER
-      frames.push({ w: stand.length + 1, h: 0.35, d: STAND_DEPTH * 0.8, x: 0, y: top + 3.4, z: STAND_DEPTH * 0.15, colour: colour(STEEL), origin })
       const posts = Math.max(2, Math.ceil(stand.length / 20) + 1)
       for (let post = 0; post < posts; post += 1) {
-        const x = -stand.length / 2 + (stand.length * post) / (posts - 1)
-        frames.push({ w: 0.4, h: top + 3.4, d: 0.4, x, y: (top + 3.4) / 2, z: STAND_DEPTH / 2 - 0.4, colour: colour(CONCRETE), origin })
+        const along = -stand.length / 2 + (stand.length * post) / (posts - 1)
+        const origin = { ...placed(stand, along), rotation: stand.rotation }
+        frames.push({ w: 0.4, h: top + 3.4 + footing, d: 0.4, x: 0, y: (top + 3.4 - footing) / 2, z: STAND_DEPTH / 2 - 0.4, colour: colour(CONCRETE), origin })
       }
     }
   }
@@ -144,11 +169,11 @@ export function buildScenery(THREE, road, resources) {
   addMesh(mergedBoxes(THREE, frames), flatMaterial)
 
   // Portique de départ, au-dessus de la ligne.
-  const gantryOrigin = { x: scenery.gantry.x, z: scenery.gantry.z, rotation: scenery.gantry.heading }
+  const gantryOrigin = { x: scenery.gantry.x, y: heightAt(road, 0), z: scenery.gantry.z, rotation: scenery.gantry.heading }
   const half = scenery.gantry.span / 2
   const gantry = [
-    { w: 0.8, h: GANTRY.height, d: 0.8, x: 0, y: GANTRY.height / 2, z: -half, colour: colour(STEEL), origin: gantryOrigin },
-    { w: 0.8, h: GANTRY.height, d: 0.8, x: 0, y: GANTRY.height / 2, z: half, colour: colour(STEEL), origin: gantryOrigin },
+    { w: 0.8, h: GANTRY.height + footing, d: 0.8, x: 0, y: (GANTRY.height - footing) / 2, z: -half, colour: colour(STEEL), origin: gantryOrigin },
+    { w: 0.8, h: GANTRY.height + footing, d: 0.8, x: 0, y: (GANTRY.height - footing) / 2, z: half, colour: colour(STEEL), origin: gantryOrigin },
     { w: 1.4, h: 1.4, d: scenery.gantry.span + 1.6, x: 0, y: GANTRY.height, z: 0, colour: colour(STEEL), origin: gantryOrigin },
   ]
   for (let lamp = -2; lamp <= 2; lamp += 1) {
@@ -159,7 +184,7 @@ export function buildScenery(THREE, road, resources) {
   // Panneaux de freinage : 3, 2 ou 1 barre rouge sur fond blanc.
   const boards = []
   for (const board of scenery.boards) {
-    const origin = { x: board.x, z: board.z, rotation: board.rotation }
+    const origin = { x: board.x, y: groundY(board.x, board.z), z: board.z, rotation: board.rotation }
     boards.push({ w: 0.1, h: 1.1, d: 0.1, x: 0, y: 0.55, z: 0, colour: colour(GREY), origin })
     boards.push({ w: 0.08, h: 1.4, d: 1.6, x: 0, y: 1.8, z: 0, colour: colour(WHITE), origin })
     for (let bar = 0; bar < board.bars; bar += 1) {
@@ -171,16 +196,20 @@ export function buildScenery(THREE, road, resources) {
   // Bâtiment des stands : un long bloc bas, façade à portes de garage côté piste.
   if (scenery.pit) {
     const { pit } = scenery
+    const chunks = chunksOf(pit.length, CHUNK.pit)
     const door = pitTexture(THREE)
-    door.repeat.set(Math.max(1, Math.round(pit.length / 12)), 1)
+    door.repeat.set(Math.max(1, Math.round(chunks[0].size / 12)), 1)
     const wall = new THREE.MeshStandardMaterial({ color: '#3d4859', roughness: 1 })
     const front = new THREE.MeshStandardMaterial({ map: door, roughness: 1 })
-    const geometry = new THREE.BoxGeometry(pit.length, pit.height, pit.depth)
+    const geometry = new THREE.BoxGeometry(chunks[0].size, pit.height + footing, pit.depth)
     resources.push(door, wall, front, geometry)
-    const mesh = new THREE.Mesh(geometry, [wall, wall, wall, wall, wall, front]) // l'avant (z local négatif) donne sur la piste
-    mesh.position.set(pit.x, pit.height / 2, pit.z)
-    mesh.rotation.y = pit.rotation
-    group.add(mesh)
+    for (const { along } of chunks) {
+      const spot = placed(pit, along)
+      const mesh = new THREE.Mesh(geometry, [wall, wall, wall, wall, wall, front]) // l'avant (z local négatif) donne sur la piste
+      mesh.position.set(spot.x, spot.y + (pit.height - footing) / 2, spot.z)
+      mesh.rotation.y = pit.rotation
+      group.add(mesh)
+    }
   }
 
   // Arbres : cônes sur un tronc, instanciés (un seul appel de rendu chacun).
@@ -195,9 +224,10 @@ export function buildScenery(THREE, road, resources) {
     const identity = new THREE.Quaternion()
     const tint = new THREE.Color()
     scenery.trees.forEach((tree, index) => {
-      matrix.compose(new THREE.Vector3(tree.x, 0.85 * tree.scale, tree.z), identity, new THREE.Vector3(tree.scale, tree.scale, tree.scale))
+      const foot = groundY(tree.x, tree.z)
+      matrix.compose(new THREE.Vector3(tree.x, foot + 0.85 * tree.scale, tree.z), identity, new THREE.Vector3(tree.scale, tree.scale, tree.scale))
       trunks.setMatrixAt(index, matrix)
-      matrix.compose(new THREE.Vector3(tree.x, (1.7 + 3.5) * tree.scale, tree.z), identity, new THREE.Vector3(tree.scale, tree.scale, tree.scale))
+      matrix.compose(new THREE.Vector3(tree.x, foot + (1.7 + 3.5) * tree.scale, tree.z), identity, new THREE.Vector3(tree.scale, tree.scale, tree.scale))
       crowns.setMatrixAt(index, matrix)
       crowns.setColorAt(index, tint.setHSL(0.38, 0.45, 0.1 + (tree.scale - 0.8) * 0.06))
     })
