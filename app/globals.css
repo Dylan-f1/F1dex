@@ -1,5 +1,15 @@
 @import 'tailwindcss';
 
+/* Écran de téléphone : étroit, ou tactile et peu haut (paysage). */
+@custom-variant compact {
+  @media (max-width: 599px) {
+    @slot;
+  }
+  @media (pointer: coarse) and (max-height: 599px) {
+    @slot;
+  }
+}
+
 /* Jetons de la direction « Retransmission » (voir docs/DESIGN.md) */
 @theme inline {
   --color-bg: #0c0f14;

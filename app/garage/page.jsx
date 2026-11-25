@@ -15,6 +15,7 @@ export default function GaragePage() {
   return (
     <main className={PAGE_PADDING}>
       <LowerThird
+        compact
         title="Garage"
         headline={`Saison ${SEASON_YEAR}`}
         details="Choisis une écurie et fais tourner sa monoplace."

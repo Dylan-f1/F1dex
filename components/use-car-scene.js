@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { CAMERA_TARGET, DEFAULT_VIEW, VIEW_TRANSITION_MS, easeOutCubic, lerpPoint } from '@/lib/car-camera'
+import { CAMERA_TARGET, DEFAULT_VIEW, VIEW_TRANSITION_MS, easeOutCubic, lerpPoint, showroomFov } from '@/lib/car-camera'
 import { accentFor, buildCarParts } from '@/lib/car-model'
 import { createWheelRig } from './car-wheel-rig'
 import { DRIVE_FOV, createDriveMode } from './drive-mode'
@@ -316,9 +316,7 @@ ${LIVERY_FRAGMENT_GLSL}`)
     if (!clientWidth || !clientHeight) return
     renderer.setSize(clientWidth, clientHeight, false)
     camera.aspect = clientWidth / clientHeight
-    // Cadre étroit (téléphone) : on s'éloigne pour garder la voiture entière.
-    const narrow = camera.aspect < 1
-    camera.fov = drive.active ? (narrow ? DRIVE_FOV.narrow : DRIVE_FOV.wide) : narrow ? 46 : 32
+    camera.fov = drive.active ? (camera.aspect < 1 ? DRIVE_FOV.narrow : DRIVE_FOV.wide) : showroomFov(camera.aspect)
     camera.updateProjectionMatrix()
   }
   const resizeObserver = new ResizeObserver(resize)

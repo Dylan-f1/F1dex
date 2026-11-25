@@ -11,7 +11,8 @@ const PAD_CLASS =
   'pointer-events-auto flex h-14 min-w-14 touch-none items-center justify-center bg-panel/70 px-3 font-display text-[16px] font-bold uppercase select-none [-webkit-tap-highlight-color:transparent] [-webkit-touch-callout:none] active:bg-ink active:text-bg'
 const LIGHTS = [0, 1, 2, 3, 4]
 
-export default function DriveHud({ hud, onTouch, onQuit }) {
+// `lowPads` : le bandeau du bas est masqué (téléphone), les boutons tactiles descendent sous les pouces.
+export default function DriveHud({ hud, onTouch, onQuit, lowPads = false }) {
   if (!hud) return null
   const lapMessage = hud.laps > 0 ? `Tour ${hud.laps} terminé en ${formatLapTime(hud.lastLap)}${hud.lastLapValid ? '' : ', supprimé'}.` : ''
   return (
@@ -38,7 +39,7 @@ export default function DriveHud({ hud, onTouch, onQuit }) {
           type="button"
           aria-label="Quitter la conduite"
           onClick={onQuit}
-          className="pointer-events-auto hidden h-10 items-center bg-panel/90 px-3 font-display text-[15px] font-bold uppercase [-webkit-tap-highlight-color:transparent] pointer-coarse:flex active:bg-ink active:text-bg"
+          className="pointer-events-auto hidden h-11 touch-manipulation items-center bg-panel/90 px-3 font-display text-[15px] font-bold uppercase select-none [-webkit-tap-highlight-color:transparent] pointer-coarse:flex active:bg-ink active:text-bg"
         >
           Quitter
         </button>
@@ -107,7 +108,7 @@ export default function DriveHud({ hud, onTouch, onQuit }) {
         {hud.phase === 'racing' && hud.lights !== null ? 'Départ.' : lapMessage}
       </p>
 
-      <TouchPads onTouch={onTouch} />
+      <TouchPads onTouch={onTouch} low={lowPads} />
     </>
   )
 }
@@ -120,7 +121,7 @@ function Flag({ children }) {
 
 // Boutons à l'écran, affichés seulement sur appareil tactile (`pointer: coarse`). Chaque bouton suit son propre
 // doigt (pointer capture) : on peut tourner et accélérer en même temps.
-function TouchPads({ onTouch }) {
+function TouchPads({ onTouch, low }) {
   const hold = (patch) => ({
     onPointerDown(event) {
       event.currentTarget.setPointerCapture(event.pointerId)
@@ -135,7 +136,7 @@ function TouchPads({ onTouch }) {
   return (
     <div
       aria-hidden="true"
-      className="pointer-events-none absolute inset-x-3 bottom-[76px] hidden items-end justify-between pointer-coarse:flex"
+      className={`pointer-events-none absolute inset-x-3 hidden items-end justify-between pointer-coarse:flex ${low ? 'bottom-4' : 'bottom-[76px]'}`}
     >
       <div className="flex gap-2">
         <button type="button" tabIndex={-1} aria-label="Tourner à gauche" className={PAD_CLASS} {...hold({ on: { steer: 1 }, off: { steer: 0 } })}>
