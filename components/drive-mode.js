@@ -1,6 +1,6 @@
 // Mode « conduite » du garage : une piste (le circuit fictif ou un vrai circuit), la voiture pilotable au clavier
 // ou au toucher, une caméra qui la suit. Les calculs (physique, tours) sont dans lib/car-drive.js ; ici :
-// l'affichage de la piste, les entrées, la caméra et l'enregistrement du meilleur tour.
+// l'affichage de la piste, les entrées, la caméra, les roues et l'enregistrement du meilleur tour.
 // Ce module ne crée rien tant que la conduite n'a pas été lancée une première fois.
 
 import { DEFAULT_VIEW } from '@/lib/car-camera'
@@ -59,7 +59,7 @@ function browserStorage() {
   }
 }
 
-export function createDriveMode({ THREE, scene, camera, controls, canvas, sun, rig, showroom, onHud, onExit }) {
+export function createDriveMode({ THREE, scene, camera, controls, canvas, sun, rig, wheels, showroom, onHud, onExit }) {
   const fictive = buildDriveTrack()
   let road = fictive
   let visuals = null // { group, resources } : la piste affichée, libérée quand on change de circuit
@@ -239,6 +239,7 @@ export function createDriveMode({ THREE, scene, camera, controls, canvas, sun, r
     resetRequested = false
     lastTime = null
     cameraHeading = state.heading
+    wheels.reset()
   }
 
   function currentInput() {
@@ -428,6 +429,7 @@ export function createDriveMode({ THREE, scene, camera, controls, canvas, sun, r
       active = false
       listen(false)
       releaseInputs()
+      wheels.reset()
       visuals.group.visible = false
       for (const object of showroom) object.visible = true
       // Retour au showroom : voiture à l'origine, vue par défaut, rotation à la souris de nouveau possible.
@@ -449,11 +451,14 @@ export function createDriveMode({ THREE, scene, camera, controls, canvas, sun, r
     update(now) {
       const dt = lastTime === null ? 0 : (now - lastTime) / 1000
       lastTime = now
-      state = stepDrive(road, state, currentInput(), dt)
+      const input = currentInput()
+      state = stepDrive(road, state, input, dt)
       saveNewBest()
+      const frameTime = Math.min(dt, DRIVE.maxStep)
+      wheels.update(state, frameTime)
       const shake = bump(now)
       placeCarAndSun(shake)
-      placeCamera(false, Math.min(dt, DRIVE.maxStep), shake)
+      placeCamera(false, frameTime, shake)
       emitHud(now, false)
     },
     setTouch(next) {

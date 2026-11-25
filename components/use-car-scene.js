@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { CAMERA_TARGET, DEFAULT_VIEW, VIEW_TRANSITION_MS, easeOutCubic, lerpPoint } from '@/lib/car-camera'
 import { accentFor, buildCarParts } from '@/lib/car-model'
+import { createWheelRig } from './car-wheel-rig'
 import { DRIVE_FOV, createDriveMode } from './drive-mode'
 
 // Matières satinées (pas de reflets d'environnement, pas de lueur) : le rendu reste « retransmission »,
@@ -82,6 +83,7 @@ function createScene({
   OrbitControls,
   RoundedBoxGeometry,
   GLTFLoader,
+  mergeGeometries,
   container,
   livery,
   autoRotate,
@@ -161,6 +163,7 @@ function createScene({
   // La voiture (modèle ou repli) vit dans `rig` : c'est lui que la conduite déplace et fait tourner.
   const rig = new THREE.Group()
   scene.add(rig)
+  const wheels = createWheelRig(THREE, mergeGeometries)
 
   // Matières : une par rôle. Changer d'écurie ne modifie que la couleur de deux d'entre elles.
   const materials = {}
@@ -188,6 +191,7 @@ function createScene({
   // Voiture de repli, faite de formes simples : affichée seulement si le modèle 3D ne se charge pas.
   function addFallbackCar() {
     const car = new THREE.Group()
+    const meshes = new Map()
     for (const part of buildCarParts()) {
       const geometry = track(buildGeometry(THREE, RoundedBoxGeometry, part))
       const mesh = new THREE.Mesh(geometry, materials[part.material])
@@ -196,15 +200,21 @@ function createScene({
       if (part.scale) mesh.scale.set(...part.scale)
       mesh.castShadow = true
       car.add(mesh)
+      meshes.set(part.name, mesh)
     }
+    for (const resource of wheels.attachFallback(car, meshes)) track(resource)
     rig.add(car)
   }
 
   // Modèle 3D : posé au sol, centré, mis à l'échelle, nez vers +x (comme la voiture de repli).
   function addModelCar(gltf) {
     const root = gltf.scene
+    // Liste établie avant la découpe des roues, qui ajoute des maillages à la scène.
+    const bodies = []
     root.traverse((object) => {
-      if (!object.isMesh) return
+      if (object.isMesh) bodies.push(object)
+    })
+    for (const object of bodies) {
       object.castShadow = true
       const material = object.material
       // glTF sans valeur de métallicité = métal intégral, qui paraît noir sans carte d'environnement.
@@ -235,7 +245,9 @@ ${LIVERY_FRAGMENT_GLSL}`)
       track(object.geometry)
       track(material)
       if (material.map) track(material.map)
-    })
+      // Après la mesure de la boîte (la livrée est repérée sur la voiture entière).
+      for (const resource of wheels.attachModel(object)) track(resource)
+    }
     const initialBox = new THREE.Box3().setFromObject(root)
     root.scale.setScalar(CAR_MODEL_LENGTH / initialBox.getSize(new THREE.Vector3()).z)
     root.updateMatrixWorld(true)
@@ -246,6 +258,7 @@ ${LIVERY_FRAGMENT_GLSL}`)
     car.add(root)
     car.rotation.y = Math.PI / 2
     rig.add(car)
+    wheels.setScale(root.scale.x)
   }
 
   let disposed = false
@@ -283,6 +296,7 @@ ${LIVERY_FRAGMENT_GLSL}`)
     canvas,
     sun,
     rig,
+    wheels,
     showroom,
     onHud,
     onExit: () => {
@@ -414,11 +428,12 @@ export function useCarScene({ livery, autoRotate, road, assist }) {
     let cancelled = false
     async function mount() {
       try {
-        const [THREE, controlsModule, boxModule, loaderModule] = await Promise.all([
+        const [THREE, controlsModule, boxModule, loaderModule, geometryModule] = await Promise.all([
           import('three'),
           import('three/examples/jsm/controls/OrbitControls.js'),
           import('three/examples/jsm/geometries/RoundedBoxGeometry.js'),
           import('three/examples/jsm/loaders/GLTFLoader.js'),
+          import('three/examples/jsm/utils/BufferGeometryUtils.js'),
         ])
         // Le montage a été annulé pendant le chargement (Strict Mode, navigation) : on ne crée rien.
         if (cancelled || !containerRef.current) return
@@ -427,6 +442,7 @@ export function useCarScene({ livery, autoRotate, road, assist }) {
           OrbitControls: controlsModule.OrbitControls,
           RoundedBoxGeometry: boxModule.RoundedBoxGeometry,
           GLTFLoader: loaderModule.GLTFLoader,
+          mergeGeometries: geometryModule.mergeGeometries,
           container: containerRef.current,
           livery: latest.current.livery,
           autoRotate: latest.current.autoRotate,

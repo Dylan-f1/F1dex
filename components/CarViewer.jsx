@@ -309,10 +309,10 @@ export default function CarViewer({ teams, circuits = [] }) {
         </div>
         <p className="mt-3 max-w-[70ch] text-[14px] text-mute">
           {driving
-            ? 'Flèches ou Z Q S D pour piloter (sur écran tactile : les boutons à l’écran), R pour revenir sur la piste, F pour le plein écran, Échap pour quitter. Tour supprimé si les quatre roues sortent de la piste. Vibreurs, gravier (il freine fort), murs de pneus (ils te remettent sur la piste), tribunes, bâtiment des stands, panneaux de freinage et arbres sont placés d’après la forme du tracé, pas d’après le vrai circuit. Secteurs : trois tiers égaux du tour, pas les secteurs officiels. Départ approximatif. Les roues ne tournent pas et ne braquent pas : le modèle n’est qu’une pièce.'
+            ? 'Flèches ou Z Q S D pour piloter (sur écran tactile : les boutons à l’écran), R pour revenir sur la piste, F pour le plein écran, Échap pour quitter. Tour supprimé si les quatre roues sortent de la piste. Vibreurs, gravier (il freine fort), murs de pneus (ils te remettent sur la piste), tribunes, bâtiment des stands, panneaux de freinage et arbres sont placés d’après la forme du tracé, pas d’après le vrai circuit. Secteurs : trois tiers égaux du tour, pas les secteurs officiels. Départ approximatif. Le braquage des roues avant est amplifié à l’écran pour rester visible.'
             : source === 'fallback'
               ? 'Le modèle 3D n’a pas pu être chargé : voici une monoplace stylisée construite en code, aux proportions d’une F1 de 2025. Ce n’est pas la reproduction d’une voiture précise.'
-              : 'Modèle 3D généré par IA à partir d’une image de F1 générique, sans logo ni écurie réelle : ce n’est pas la reproduction d’une voiture précise. Les couleurs de chaque écurie (carrosserie, ailerons, liserés) sont approchées, sans logo ni sponsor.'}
+              : 'Modèle 3D généré par IA à partir d’une image de F1 générique, sans logo ni écurie réelle : ce n’est pas la reproduction d’une voiture précise. Les roues sont construites en code. Les couleurs de chaque écurie (carrosserie, ailerons, liserés) sont approchées, sans logo ni sponsor.'}
         </p>
       </section>
 
