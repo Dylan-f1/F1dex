@@ -8,13 +8,17 @@ import { AMBIANCES, pickAmbiance, sunVector } from '@/lib/ambiance'
 import { DEFAULT_VIEW } from '@/lib/car-camera'
 import { loadBest, saveBest } from '@/lib/best-laps'
 import { ASSISTS, DEFAULT_ASSIST } from '@/lib/car-physics'
-import { DRIVE, buildDriveTrack, createDriveState, groundUnder, pointAt, stepDrive } from '@/lib/car-drive'
+import { DRIVE, buildDriveTrack, chooseNextTyre, createDriveState, groundUnder, pointAt, raceStints, stepDrive, tyreAge } from '@/lib/car-drive'
 import { getFeatures } from '@/lib/circuit-features'
 import { getScenery } from '@/lib/circuit-scenery'
+import { getPitLane, relOf } from '@/lib/pit-lane'
+import { PIT_RULES } from '@/lib/pit-stop'
+import { COMPOUND_IDS, DEFAULT_COMPOUND, compoundOr } from '@/lib/tyres'
 import { ENGINE_SOUND, engineSound, soundRevs } from '@/lib/engine-sound'
 import { FICTIVE_RELIEF } from '@/lib/relief'
 import { barrierLayout, groveTrees, racingLine } from '@/lib/scenery-layout'
 import { TERRAIN, floorAt, getTerrain } from '@/lib/terrain'
+import { buildPit } from './drive-pit'
 import { buildRoad } from './drive-road'
 import { buildScenery } from './drive-scenery'
 import { buildSky, warmSky } from './drive-sky'
@@ -45,6 +49,9 @@ const KERB_SHAKE = 0.06 // m d'amplitude de la secousse sur vibreur, à pleine v
 const LIGHTS_OUT_VISIBLE = 1.2 // s pendant lesquelles les feux restent affichés (éteints) après le départ
 const REV_LIMIT = 13000
 export const DRIVE_FOV = { wide: 50, narrow: 64 }
+const PIT_HINT = 220 // m avant l'entrée des stands : distance annoncée
+// Touches 1, 2, 3 (rangée du haut ou pavé numérique) : gomme à monter au prochain arrêt.
+const TYRE_KEYS = Object.fromEntries(COMPOUND_IDS.flatMap((id, index) => [[`Digit${index + 1}`, id], [`Numpad${index + 1}`, id]]))
 
 // Touches lues par `event.code` (position physique) : KeyW/KeyA/KeyS/KeyD sont Z/Q/S/D sur un clavier AZERTY.
 const KEY_ACTIONS = {
@@ -86,6 +93,8 @@ export function createDriveMode({ THREE, scene, camera, controls, canvas, sun, r
   let noticeText = ''
   let seenCrashes = 0
   let assist = DEFAULT_ASSIST
+  let race = { laps: null, compound: DEFAULT_COMPOUND } // `laps` : null en roulage libre
+  let fitted = null // gomme affichée sur les roues
   const audio = createEngineAudio()
   let revs = ENGINE_SOUND.idleRpm // régime entendu
   const keys = { throttle: false, brake: false, left: false, right: false }
@@ -116,15 +125,17 @@ export function createDriveMode({ THREE, scene, camera, controls, canvas, sun, r
     const heading = pointAt(road, 0).heading
     const surfaces = buildRoad(THREE, road, resources)
     const buildings = buildScenery(THREE, road, resources)
+    const pits = buildPit(THREE, road, resources)
     const trees = buildTrees(THREE, road, groundY, ambiance.fog.far, resources)
     const sky = buildSky(THREE, ambiance, heading, resources)
-    group.add(sky.group, surfaces.group, buildings.group, trees.group)
+    group.add(sky.group, surfaces.group, buildings.group, pits.group, trees.group)
     group.visible = active
     scene.add(group)
     return {
       group,
       resources,
       sun: sunVector(ambiance.sun, heading),
+      pits,
       // À chaque image : le ciel suit la caméra, les détails lointains sont retirés.
       update(view) {
         sky.follow(view, surfaces.level)
@@ -195,7 +206,7 @@ export function createDriveMode({ THREE, scene, camera, controls, canvas, sun, r
   // chacune), pour que ni la page ni le premier « Conduire » ne se figent. Ce qui reste est terminé au clic.
   function warmUp(target) {
     const steps = (function* () {
-      for (const compute of [getFeatures, getScenery, getTerrain, barrierLayout, groveTrees, racingLine]) {
+      for (const compute of [getPitLane, getFeatures, getScenery, getTerrain, barrierLayout, groveTrees, racingLine]) {
         compute(target)
         yield
       }
@@ -231,7 +242,8 @@ export function createDriveMode({ THREE, scene, camera, controls, canvas, sun, r
   function newRun() {
     const best = loadBest(browserStorage(), bestKey())
     // Attente variable après le 5e feu, comme en course : on ne peut pas anticiper l'extinction.
-    state = createDriveState(road, { hold: 0.6 + Math.random() * 1.6, best })
+    state = createDriveState(road, { hold: 0.6 + Math.random() * 1.6, best, raceLaps: race.laps, compound: race.compound })
+    showCompound()
     savedBest = state.bestSerial
     seenCrashes = 0
     noticeUntil = 0
@@ -240,6 +252,26 @@ export function createDriveMode({ THREE, scene, camera, controls, canvas, sun, r
     cameraHeading = state.heading
     revs = ENGINE_SOUND.idleRpm
     wheels.reset()
+  }
+
+  // La bande des pneus suit la gomme montée.
+  function showCompound() {
+    if (state.tyre.compound === fitted) return
+    fitted = state.tyre.compound
+    wheels.setCompound(fitted)
+  }
+
+  // Nouvelle course sur la piste et les réglages courants, affichée aussitôt.
+  function restart() {
+    newRun()
+    placeCarAndSun()
+    placeCamera(true, 0)
+    emitHud(0, true)
+  }
+
+  function pickTyre(compound) {
+    state = chooseNextTyre(state, compound)
+    emitHud(lastHud, true)
   }
 
   function currentInput() {
@@ -270,6 +302,11 @@ export function createDriveMode({ THREE, scene, camera, controls, canvas, sun, r
     }
     if (event.code === 'KeyR') {
       if (!event.repeat) resetRequested = true
+      return
+    }
+    if (TYRE_KEYS[event.code]) {
+      event.preventDefault()
+      pickTyre(TYRE_KEYS[event.code])
       return
     }
     const action = KEY_ACTIONS[event.code]
@@ -369,6 +406,36 @@ export function createDriveMode({ THREE, scene, camera, controls, canvas, sun, r
     })
   }
 
+  function raceView() {
+    const { raceLaps, laps, finished } = state
+    const lap = raceLaps ? Math.min(laps + 1, raceLaps) : laps + 1
+    return {
+      lap,
+      total: raceLaps,
+      finished,
+      time: state.raceTime,
+      bestLap: state.bestLap,
+      stints: raceStints(road, state),
+    }
+  }
+
+  // Ce que le tableau de bord dit des stands : arrêt en cours, distance au box, ou à l'entrée quand elle approche.
+  function pitView() {
+    const lane = getPitLane(road)
+    if (!lane) return null
+    const rel = relOf(road, state.s)
+    const toEntry = (((lane.entry - rel) % road.length) + road.length) % road.length
+    return {
+      side: lane.side === 'right' ? 'droite' : 'gauche',
+      inLane: state.pit.inLane,
+      served: state.pit.served,
+      service: state.pit.service,
+      serviceTotal: PIT_RULES.service,
+      toBox: Math.max(0, Math.round(lane.box - rel)),
+      toEntry: toEntry <= PIT_HINT ? Math.ceil(toEntry / 10) * 10 : null,
+    }
+  }
+
   function emitHud(now, force) {
     if (!force && now - lastHud < HUD_INTERVAL_MS) return
     lastHud = now
@@ -398,6 +465,9 @@ export function createDriveMode({ THREE, scene, camera, controls, canvas, sun, r
       delta: state.delta,
       sectors: sectorsView(),
       recoveries: state.recoveries,
+      race: raceView(),
+      tyre: { compound: state.tyre.compound, wear: state.tyre.wear, age: tyreAge(road, state), next: state.nextCompound },
+      pit: pitView(),
     })
   }
 
@@ -425,21 +495,27 @@ export function createDriveMode({ THREE, scene, camera, controls, canvas, sun, r
         return
       }
       visuals = buildVisuals()
-      newRun()
-      placeCarAndSun()
-      placeCamera(true, 0)
-      emitHud(0, true)
+      restart()
     },
     // Niveau d'aides ('high' | 'normal' | 'off') : en pleine conduite, la course recommence (les temps ne seraient pas comparables).
     setAssist(next) {
       const level = next in ASSISTS ? next : DEFAULT_ASSIST
       if (level === assist) return
       assist = level
-      if (!active) return
-      newRun()
-      placeCarAndSun()
-      placeCamera(true, 0)
-      emitHud(0, true)
+      if (active) restart()
+    },
+    // Nombre de tours (null : roulage libre) et gomme au départ : en pleine conduite, la course recommence.
+    setRace({ laps, compound }) {
+      const next = { laps: laps || null, compound: compoundOr(compound) }
+      if (next.laps === race.laps && next.compound === race.compound) return
+      race = next
+      if (active) restart()
+    },
+    restart() {
+      if (active) restart()
+    },
+    setNextTyre(compound) {
+      if (active) pickTyre(compound)
     },
     start() {
       if (active) return
@@ -467,6 +543,8 @@ export function createDriveMode({ THREE, scene, camera, controls, canvas, sun, r
       releaseInputs()
       audio.stop()
       wheels.reset()
+      wheels.setCompound(null)
+      fitted = null
       visuals.group.visible = false
       for (const object of showroom) object.visible = true
       // Retour au showroom : voiture à l'origine, vue par défaut, rotation à la souris de nouveau possible.
@@ -491,6 +569,8 @@ export function createDriveMode({ THREE, scene, camera, controls, canvas, sun, r
       state = stepDrive(road, state, input, dt)
       saveNewBest()
       const frameTime = Math.min(dt, DRIVE.maxStep)
+      showCompound() // un arrêt aux stands change la gomme en cours de route
+      visuals.pits.update(state, frameTime)
       wheels.update(state, frameTime)
       revs = soundRevs(revs, { phase: state.phase, rpm: state.rpm, gear: state.gear, throttle: input.throttle }, frameTime)
       audio.update(engineSound({ rpm: revs, throttle: input.throttle, speed: state.speed, shifting: state.shift > 0 }))

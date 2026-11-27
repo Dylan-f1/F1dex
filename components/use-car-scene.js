@@ -118,6 +118,7 @@ function createScene({
   road,
   assist,
   sound,
+  race,
   codeCar,
   onStatus,
   onSource,
@@ -381,6 +382,7 @@ ${LIVERY_FRAGMENT_GLSL}`)
 
   drive.setAssist(assist)
   drive.setSound(sound)
+  drive.setRace(race)
   drive.setRoad(road)
 
   // Taille : suit le conteneur.
@@ -458,6 +460,9 @@ ${LIVERY_FRAGMENT_GLSL}`)
     setRoad: drive.setRoad,
     setAssist: drive.setAssist,
     setSound: drive.setSound,
+    setRace: drive.setRace,
+    restartDriving: drive.restart,
+    setNextTyre: drive.setNextTyre,
     setTouch: drive.setTouch,
     dispose() {
       disposed = true
@@ -480,11 +485,11 @@ ${LIVERY_FRAGMENT_GLSL}`)
 
 // Monte la scène three.js dans le conteneur renvoyé (ref) et expose des commandes. three.js est chargé
 // à la demande : la page garage seule paie son poids, pas le reste du site.
-export function useCarScene({ livery, team, autoRotate, road, assist, sound }) {
+export function useCarScene({ livery, team, autoRotate, road, assist, sound, race }) {
   const containerRef = useRef(null)
   const sceneRef = useRef(null)
   // Valeurs courantes lues au moment où la scène se monte (le chargement est asynchrone).
-  const latest = useRef({ livery, team, autoRotate, road, assist, sound })
+  const latest = useRef({ livery, team, autoRotate, road, assist, sound, race })
   const [status, setStatus] = useState('loading')
   // 'model' (modèle 3D reconstruit), 'code' (monoplace construite en code, sur demande) ou 'fallback' (voiture en
   // formes simples) : sert à la légende sous la visionneuse.
@@ -494,12 +499,13 @@ export function useCarScene({ livery, team, autoRotate, road, assist, sound }) {
   const [hud, setHud] = useState(null)
 
   useEffect(() => {
-    latest.current = { livery, team, autoRotate, road, assist, sound }
+    latest.current = { livery, team, autoRotate, road, assist, sound, race }
     sceneRef.current?.setAutoRotate(autoRotate)
     sceneRef.current?.setRoad(road)
     sceneRef.current?.setAssist(assist)
     sceneRef.current?.setSound(sound)
-  }, [livery, team, autoRotate, road, assist, sound])
+    sceneRef.current?.setRace(race)
+  }, [livery, team, autoRotate, road, assist, sound, race])
 
   // À part : changer d'écurie repose les logos, un réglage de conduite ne doit pas le faire.
   useEffect(() => {
@@ -535,6 +541,7 @@ export function useCarScene({ livery, team, autoRotate, road, assist, sound }) {
           road: latest.current.road,
           assist: latest.current.assist,
           sound: latest.current.sound,
+          race: latest.current.race,
           // Lu ici, côté navigateur : la page reste statique.
           codeCar: new URLSearchParams(window.location.search).get('voiture') === 'code',
           onStatus: setStatus,
@@ -574,6 +581,8 @@ export function useCarScene({ livery, team, autoRotate, road, assist, sound }) {
       setHud(null)
     },
     setTouch: (next) => sceneRef.current?.setTouch(next),
+    setNextTyre: (compound) => sceneRef.current?.setNextTyre(compound),
+    restartDriving: () => sceneRef.current?.restartDriving(),
     goToView: (position) => sceneRef.current?.goToView(position),
   }
 }

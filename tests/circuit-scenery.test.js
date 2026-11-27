@@ -95,7 +95,9 @@ test('les tribunes, le bâtiment des stands et les poteaux du portique sont soli
   assert.equal(hitsScenery(road, away.x, away.z), false, 'devant la tribune, côté piste')
   assert.equal(hitsScenery(road, scenery.pit.x, scenery.pit.z), true, 'dans le bâtiment des stands')
   const post = { x: scenery.gantry.x, z: scenery.gantry.z, rotation: scenery.gantry.heading }
-  const postSpot = toWorld(post, 0, scenery.gantry.span / 2)
+  // Le pied côté stands est posé sur le muret, qui arrête la voiture lui-même (tests/pit-lane.test.js) : on vise l'autre.
+  const leg = scenery.gantry.legs.find((candidate) => !candidate.onPitWall)
+  const postSpot = toWorld(post, 0, leg.across)
   assert.equal(hitsScenery(road, postSpot.x, postSpot.z), true, 'sur un poteau du portique')
   assert.equal(hitsScenery(road, scenery.gantry.x, scenery.gantry.z), false, 'sous le portique, sur la piste')
 

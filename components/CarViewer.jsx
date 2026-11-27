@@ -3,9 +3,11 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { buildCircuitTrack } from '@/lib/car-drive'
 import { CAMERA_VIEWS } from '@/lib/car-camera'
+import { TYRES } from '@/lib/constants'
 import { countryNameFr } from '@/lib/format'
 import { liveryFor } from '@/lib/liveries'
 import { readSound, subscribeSound, writeSound } from '@/lib/sound-preference'
+import { COMPOUND_IDS, DEFAULT_COMPOUND } from '@/lib/tyres'
 import DriveHud from './DriveHud'
 import { useCarScene } from './use-car-scene'
 
@@ -45,6 +47,11 @@ const ASSIST_CHOICES = [
   { id: 'off', label: 'Aucune (sportif)', hint: 'Sans aide à la stabilité ni anti-patinage : on exploite le maximum d’adhérence, elle glisse dès qu’on dépasse la limite. Pour tester.' },
 ]
 
+// Longueur de la course en tours ; 0 : roulage libre, sans drapeau à damier.
+const RACE_LENGTHS = [0, 3, 5, 10, 20]
+const DEFAULT_LAPS = 5
+const raceLabel = (count) => (count ? `${count} tours` : 'Roulage libre')
+
 export default function CarViewer({ teams, circuits = [] }) {
   const [teamName, setTeamName] = useState(teams[0]?.name)
   const [rotationChoice, setRotationChoice] = useState(null)
@@ -62,6 +69,9 @@ export default function CarViewer({ teams, circuits = [] }) {
   const [activeKey, setActiveKey] = useState('')
   const [loaded, setLoaded] = useState({})
   const [assist, setAssist] = useState('high')
+  const [raceLaps, setRaceLaps] = useState(DEFAULT_LAPS)
+  const [compound, setCompound] = useState(DEFAULT_COMPOUND)
+  const race = useMemo(() => ({ laps: raceLaps, compound }), [raceLaps, compound])
   const road = activeKey ? (loaded[activeKey]?.road ?? null) : null
   const activeCircuit = activeKey ? circuits.find((circuit) => circuit.key === activeKey) : null
   const circuitFailed = circuitKey !== '' && loaded[circuitKey]?.failed === true
@@ -92,13 +102,26 @@ export default function CarViewer({ teams, circuits = [] }) {
   const [pseudo, setPseudo] = useState(null)
   const autoFullscreenRef = useRef(false) // plein écran du navigateur ouvert par « Conduire »
 
-  const { containerRef, status, source, driving, hud, startDriving, stopDriving, setTouch, goToView } = useCarScene({
+  const {
+    containerRef,
+    status,
+    source,
+    driving,
+    hud,
+    startDriving,
+    stopDriving,
+    restartDriving,
+    setNextTyre,
+    setTouch,
+    goToView,
+  } = useCarScene({
     livery,
     team,
     autoRotate,
     road,
     assist,
     sound: soundOn,
+    race,
   })
   const pseudoFullscreen = pseudo === 'manual' || (pseudo === 'drive' && driving)
   const isFullscreen = nativeFullscreen || pseudoFullscreen
@@ -114,6 +137,16 @@ export default function CarViewer({ teams, circuits = [] }) {
   function pickAssist(event) {
     setAssist(event.target.value)
     event.target.blur() // même raison que pour le circuit : les flèches pilotent la voiture
+  }
+
+  function pickRaceLaps(event) {
+    setRaceLaps(Number(event.target.value))
+    event.target.blur()
+  }
+
+  function pickCompound(event) {
+    setCompound(event.target.value)
+    event.target.blur()
   }
 
   useEffect(() => {
@@ -265,7 +298,16 @@ export default function CarViewer({ teams, circuits = [] }) {
               couleurs des écuries restent consultables dans la liste.
             </Message>
           )}
-          {driving && <DriveHud hud={hud} onTouch={setTouch} onQuit={stopDriving} lowPads={isPhone} />}
+          {driving && (
+            <DriveHud
+              hud={hud}
+              onTouch={setTouch}
+              onQuit={stopDriving}
+              onNextTyre={setNextTyre}
+              onRestart={restartDriving}
+              lowPads={isPhone}
+            />
+          )}
           {(driving || isFullscreen) && (
             // En colonne : sur téléphone, il n'y a la place que d'un bouton entre les deux panneaux du tableau de bord.
             <div className="absolute top-3 left-1/2 flex -translate-x-1/2 flex-col gap-1.5">
@@ -343,7 +385,7 @@ export default function CarViewer({ teams, circuits = [] }) {
           <span className="flex min-w-0 flex-col">
             <span className="font-display text-[18px] leading-tight font-bold uppercase">Réglages de conduite</span>
             <span className="truncate text-[13px] text-mute">
-              {activeCircuit?.name ?? 'Circuit fictif'}, aides : {assistChoice.label}
+              {activeCircuit?.name ?? 'Circuit fictif'}, {raceLabel(raceLaps).toLowerCase()}, aides : {assistChoice.label}
             </span>
           </span>
           <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2.2" className="shrink-0">
@@ -366,6 +408,26 @@ export default function CarViewer({ teams, circuits = [] }) {
               {circuits.map((circuit) => (
                 <option key={circuit.key} value={circuit.key}>
                   {circuit.name} · {countryNameFr(circuit.country)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex min-w-0 flex-col gap-1 text-[13px] text-mute uppercase compact:w-full">
+            Course
+            <select value={raceLaps} onChange={pickRaceLaps} className={SELECT_CLASS}>
+              {RACE_LENGTHS.map((count) => (
+                <option key={count} value={count}>
+                  {raceLabel(count)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex min-w-0 flex-col gap-1 text-[13px] text-mute uppercase compact:w-full">
+            Pneus au départ
+            <select value={compound} onChange={pickCompound} className={SELECT_CLASS}>
+              {COMPOUND_IDS.map((id) => (
+                <option key={id} value={id}>
+                  {TYRES[id].label}
                 </option>
               ))}
             </select>
@@ -410,7 +472,7 @@ export default function CarViewer({ teams, circuits = [] }) {
         </div>
         <p className="mt-3 max-w-[70ch] text-[14px] text-mute max-[1001px]:max-w-[56ch]">
           {driving
-            ? 'Flèches ou Z Q S D pour piloter (sur écran tactile : joystick à gauche pour tourner, frein et gaz à droite), R pour revenir sur la piste, F pour le plein écran, M pour le son, Échap pour quitter. Tour supprimé si les quatre roues sortent de la piste. Vibreurs, gravier (il freine fort), murs de pneus (ils te remettent sur la piste), tribunes, bâtiment des stands, panneaux de freinage et arbres sont placés d’après la forme du tracé, pas d’après le vrai circuit. Secteurs : trois tiers égaux du tour, pas les secteurs officiels. Départ approximatif. Relief : altitude mesurée par OpenF1 sur les vrais circuits, inventée sur le circuit fictif ; lissée et sans dévers. Son du moteur synthétisé (sur iPhone, le mode silencieux le coupe sans doute aussi). Le braquage des roues avant est amplifié à l’écran pour rester visible.'
+            ? 'Flèches ou Z Q S D pour piloter (sur écran tactile : joystick à gauche pour tourner, frein et gaz à droite), R pour revenir sur la piste, F pour le plein écran, M pour le son, Échap pour quitter. Tour supprimé si les quatre roues sortent de la piste. Stands : prends la route d’entrée ; la vitesse est limitée à 80 km/h, la voiture s’arrête seule au box et change de pneus. Choisis la gomme avec 1, 2, 3 ou les boutons. Le tendre accroche le plus et s’use le plus vite, le dur l’inverse ; l’usure est accélérée pour compter sur une course courte. Vibreurs, gravier (il freine fort), murs de pneus (ils te remettent sur la piste), tribunes, voie et bâtiment des stands, panneaux de freinage et arbres sont placés d’après la forme du tracé, pas d’après le vrai circuit. Secteurs : trois tiers égaux du tour, pas les secteurs officiels. Départ approximatif. Relief : altitude mesurée par OpenF1 sur les vrais circuits, inventée sur le circuit fictif ; lissée et sans dévers. Son du moteur synthétisé (sur iPhone, le mode silencieux le coupe sans doute aussi). Le braquage des roues avant est amplifié à l’écran pour rester visible.'
             : source === 'fallback'
               ? 'Le modèle 3D n’a pas pu être chargé : voici une monoplace stylisée construite en code, aux proportions d’une F1 de 2025. Ce n’est pas la reproduction d’une voiture précise.'
               : source === 'code'

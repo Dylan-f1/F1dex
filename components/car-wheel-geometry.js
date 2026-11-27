@@ -13,6 +13,8 @@ const MATERIALS = {
   rim: { color: '#3a4048', roughness: 0.5, metalness: 0.3 },
   hub: { color: '#6b7480', roughness: 0.5, metalness: 0.3 },
 }
+// En conduite, la bande du flanc dit la gomme montée (mêmes couleurs qu'en F1 : rouge, jaune, blanc).
+const COMPOUND_BANDS = { SOFT: '#c8241b', MEDIUM: MATERIALS.band.color, HARD: '#e6e8ea' }
 // Marquage du flanc : [début, longueur] en radians. Deux groupes différents, pour que la rotation se lise.
 const LETTERING = [
   [-0.34, 0.26],
@@ -125,6 +127,10 @@ export function createWheelFactory(THREE, mergeGeometries) {
       const key = `${radius}×${width}×${brand?.uuid ?? ''}`
       if (!templates.has(key)) templates.set(key, build(radius, width, brand))
       return templates.get(key).clone()
+    },
+    // Gomme montée sur toutes les roues (null : la bande jaune d'origine, au garage).
+    setCompound(compound) {
+      material('band').color.set(COMPOUND_BANDS[compound] ?? MATERIALS.band.color)
     },
     // Géométries et matières créées, à libérer avec la scène.
     resources: () => [...resources],

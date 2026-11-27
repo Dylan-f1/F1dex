@@ -237,6 +237,31 @@ function tyres() {
   })
 }
 
+// Panneau de la voie des stands : une ou deux lignes en gros, blanc sur fond sombre.
+export function pitSignTexture(THREE, name, lines) {
+  return canvasTexture(
+    THREE,
+    `stands-${name}-${lines.join('')}`,
+    384,
+    256,
+    (context, width, height) => {
+      context.fillStyle = '#111317'
+      context.fillRect(0, 0, width, height)
+      context.strokeStyle = '#f4f5f6'
+      context.lineWidth = 12
+      context.strokeRect(10, 10, width - 20, height - 20)
+      context.fillStyle = '#f4f5f6'
+      context.textAlign = 'center'
+      context.textBaseline = 'middle'
+      lines.forEach((text, line) => {
+        context.font = `bold ${line === 0 ? 108 : 92}px "Arial Narrow", Arial, sans-serif`
+        context.fillText(text, width / 2, (height * (line + 0.5 + (line ? -0.08 : 0.08))) / lines.length)
+      })
+    },
+    { repeat: false },
+  )
+}
+
 // Panneau de freinage : la distance en gros chiffres, barres rouges au-dessus.
 export function boardTexture(THREE, bars, distance) {
   return canvasTexture(

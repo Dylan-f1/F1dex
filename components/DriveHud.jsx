@@ -4,6 +4,7 @@ import { useRef } from 'react'
 import { formatDelta, formatLapTime } from '@/lib/car-drive'
 import { dragStick } from '@/lib/touch-stick'
 import Digits from './Digits'
+import { RaceOverlay, TyreStatus } from './RaceHud'
 
 // Tableau de bord de la conduite, dans le vocabulaire « retransmission » du reste du site : panneaux `panel`,
 // chiffres Saira en cases fixes (voir `Digits`), meilleur temps en violet (`fastest`), drapeau jaune (`tyre-medium`) quand on sort de
@@ -16,7 +17,7 @@ const PAD_CLASS =
 const LIGHTS = [0, 1, 2, 3, 4]
 
 // `lowPads` : le bandeau du bas est masqué (téléphone), les commandes tactiles descendent sous les pouces.
-export default function DriveHud({ hud, onTouch, onQuit, lowPads = false }) {
+export default function DriveHud({ hud, onTouch, onQuit, onNextTyre, onRestart, lowPads = false }) {
   if (!hud) return null
   const lapMessage = hud.laps > 0 ? `Tour ${hud.laps} terminé en ${formatLapTime(hud.lastLap)}${hud.lastLapValid ? '' : ', supprimé'}.` : ''
   return (
@@ -37,6 +38,7 @@ export default function DriveHud({ hud, onTouch, onQuit, lowPads = false }) {
             <div className="text-[12px] text-mute uppercase">Rapp.</div>
           </div>
         </div>
+        <TyreStatus hud={hud} />
         {!hud.onTrack && hud.surface !== 'kerb' && <Flag>{hud.surface === 'gravel' ? 'Gravier' : 'Hors piste'}</Flag>}
         {hud.notice && <Flag>{hud.notice}</Flag>}
         {hud.running && !hud.lapValid && <Flag>Tour supprimé</Flag>}
@@ -52,7 +54,10 @@ export default function DriveHud({ hud, onTouch, onQuit, lowPads = false }) {
 
       <dl className="pointer-events-none absolute top-3 right-3 bg-panel/90 px-3 py-1 text-right max-[479px]:min-w-[118px] max-[479px]:px-2 max-[359px]:min-w-[110px] max-[359px]:px-1.5">
         <div className="flex items-baseline justify-end gap-3 max-[479px]:flex-col max-[479px]:items-end max-[479px]:gap-0">
-          <dt className="text-[12px] text-mute uppercase">Tour {hud.laps + 1}</dt>
+          <dt className="text-[12px] text-mute uppercase">
+            Tour {hud.race.lap}
+            {hud.race.total ? `/${hud.race.total}` : ''}
+          </dt>
           {/* Largeur de « 8:88.888 » réservée : le panneau ne s'élargit pas à 10 secondes ni à la minute. */}
           <dd className="min-w-[3.4em] font-display text-[26px] leading-none font-bold">
             <Digits value={hud.running ? formatLapTime(hud.lapTime) : '–'} struck={hud.running && !hud.lapValid} />
@@ -115,6 +120,8 @@ export default function DriveHud({ hud, onTouch, onQuit, lowPads = false }) {
       </p>
 
       <TouchControls onTouch={onTouch} low={lowPads} />
+      {/* Après les commandes tactiles : ses boutons passent devant la zone du joystick. */}
+      <RaceOverlay hud={hud} onNextTyre={onNextTyre} onRestart={onRestart} onQuit={onQuit} />
     </>
   )
 }

@@ -95,6 +95,8 @@ export function createWheelRig(THREE, mergeGeometries) {
       }
       return factory.resources()
     },
+    // Couleur de la bande des pneus selon la gomme montée (voir car-wheel-geometry.js).
+    setCompound: factory.setCompound,
     // Échelle appliquée au modèle, pour convertir les rayons en mètres.
     setScale(next) {
       scale = next

@@ -238,10 +238,9 @@ export function buildScenery(THREE, road, resources) {
   // ---------------------------------------------------------------- Portique de départ
   {
     const origin = { x: scenery.gantry.x, y: heightAt(road, 0), z: scenery.gantry.z, rotation: scenery.gantry.heading }
-    const half = scenery.gantry.span / 2
+    const { legs } = scenery.gantry
     const height = GANTRY.height + footing
-    for (const end of [-1, 1]) {
-      const z = end * half
+    for (const { across: z, onPitWall } of legs) {
       for (const dx of [-0.36, 0.36]) {
         for (const dz of [-0.36, 0.36]) {
           batch.box('metal', origin, { w: 0.14, h: height, d: 0.14, x: dx, y: GANTRY.height - height / 2, z: z + dz }, steel)
@@ -251,14 +250,17 @@ export function buildScenery(THREE, road, resources) {
           batch.box('metal', origin, { w: 0.07, h: 0.07, d: 0.72, x: dx, y, z }, steel)
         }
       }
-      batch.box('concrete', origin, { w: 1.15, h: 0.5, d: 1.15, y: 0.1, z }, stone, 3)
+      // Sur le muret des stands, pas de socle : il dépasserait de part et d'autre.
+      if (!onPitWall) batch.box('concrete', origin, { w: 1.15, h: 0.5, d: 1.15, y: 0.1, z }, stone, 3)
     }
+    // La poutre va d'un pied à l'autre : elle n'est pas centrée quand un pied est reporté sur le muret.
     const span = scenery.gantry.span + 0.9
+    const middle = (legs[0].across + legs[1].across) / 2
     for (const x of [-0.5, 0.5]) {
-      for (const y of [GANTRY.height - 0.65, GANTRY.height + 0.65]) batch.box('metal', origin, { w: 0.14, h: 0.14, d: span, x, y, z: 0 }, steel)
+      for (const y of [GANTRY.height - 0.65, GANTRY.height + 0.65]) batch.box('metal', origin, { w: 0.14, h: 0.14, d: span, x, y, z: middle }, steel)
       const panels = Math.round(span / 1.3)
       for (let panel = 0; panel < panels; panel += 1) {
-        const a = -span / 2 + (panel * span) / panels
+        const a = middle - span / 2 + (panel * span) / panels
         const b = a + span / panels
         const up = panel % 2 === 0
         batch.strut('metal', origin, x, [GANTRY.height + (up ? -0.65 : 0.65), a], [GANTRY.height + (up ? 0.65 : -0.65), b], 0.09, steel)
@@ -269,7 +271,7 @@ export function buildScenery(THREE, road, resources) {
       batch.box('paint', origin, { w: 0.35, h: 1.15, d: 0.7, x: -0.72, y: GANTRY.height - 0.25, z: lamp * 1.05 }, colour('#101216'))
       for (const y of [-0.52, 0]) batch.box('shade', origin, { w: 0.06, h: 0.36, d: 0.36, x: -0.92, y: GANTRY.height + y, z: lamp * 1.05 }, colour('#571a16'))
     }
-    batch.box('paint', origin, { w: 0.18, h: 0.9, d: scenery.gantry.span * 0.8, x: 0.62, y: GANTRY.height, z: 0 }, dark)
+    batch.box('paint', origin, { w: 0.18, h: 0.9, d: (road.width + 3) * 0.8, x: 0.62, y: GANTRY.height, z: 0 }, dark)
   }
 
   // ---------------------------------------------------------------- Panneaux de freinage
