@@ -1,5 +1,6 @@
 'use client'
 
+import { splitSlots } from '@/lib/digit-slots'
 import { formatDecimal, formatLapTime } from '@/lib/format'
 
 export const SPEEDS = [1, 2, 4, 8]
@@ -80,10 +81,14 @@ export function PlaybackBar({
             </button>
           ))}
         </div>
-        <p className="ml-auto flex items-baseline gap-1.5 font-display tabular-nums">
+        <p className="ml-auto flex items-baseline gap-1.5 font-display">
           {/* Mis à jour hors de React ; masqué aux lecteurs d'écran (60 annonces par seconde) */}
-          <span ref={clockRef} aria-hidden="true" className="text-[30px] leading-none font-extrabold italic">
-            0:00.000
+          <span ref={clockRef} aria-hidden="true" className="text-[30px] leading-none font-extrabold whitespace-nowrap italic">
+            {splitSlots('0:00.000').map(({ char, className }, index) => (
+              <span key={index} className={className}>
+                {char}
+              </span>
+            ))}
           </span>
           <span className="text-[15px] text-mute">
             <span className="sr-only">Durée du tour : </span>/ {formatLapTime(durationMs / 1000)}

@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { writeSlots } from '@/lib/digit-slots'
 import { formatLapTime } from '@/lib/format'
 import { bestLapOf, positionAt, sectorIndexAt } from '@/lib/replay'
 import { zoomLevel } from '@/lib/viewport'
@@ -100,7 +101,7 @@ export default function TrackMap({ track, circuit, sectorMarks, fastestLap, driv
         carRef.current.setAttribute('visibility', position ? 'visible' : 'hidden')
         if (position) carRef.current.setAttribute('transform', `translate(${position.x} ${position.y})`)
       }
-      if (clockRef.current) clockRef.current.textContent = formatLapTime(ms / 1000)
+      if (clockRef.current) writeSlots(clockRef.current, formatLapTime(ms / 1000))
       if (sliderRef.current) sliderRef.current.value = String(Math.round(ms))
       const active = replay ? sectorIndexAt(replay.sectors, ms) : null
       sectorCellRefs.current.forEach((cell, index) => cell && (cell.dataset.active = String(index === active)))

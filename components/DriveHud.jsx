@@ -3,11 +3,13 @@
 import { useRef } from 'react'
 import { formatDelta, formatLapTime } from '@/lib/car-drive'
 import { dragStick } from '@/lib/touch-stick'
+import Digits from './Digits'
 
 // Tableau de bord de la conduite, dans le vocabulaire « retransmission » du reste du site : panneaux `panel`,
-// chiffres Saira en tabulaires, meilleur temps en violet (`fastest`), drapeau jaune (`tyre-medium`) quand on sort de
+// chiffres Saira en cases fixes (voir `Digits`), meilleur temps en violet (`fastest`), drapeau jaune (`tyre-medium`) quand on sort de
 // la piste ou que le tour est supprimé. Aucune couleur nouvelle : le sens ne repose jamais sur la couleur seule.
 // Superposé à la visionneuse 3D ; les panneaux ne captent pas le pointeur, seules les commandes tactiles le font.
+// Sous 480 px, les deux panneaux se resserrent pour laisser la place au bouton du cadre, entre eux.
 
 const PAD_CLASS =
   'pointer-events-auto flex h-14 min-w-14 touch-none items-center justify-center bg-panel/70 px-3 font-display text-[16px] font-bold uppercase select-none [-webkit-tap-highlight-color:transparent] [-webkit-touch-callout:none] active:bg-ink active:text-bg'
@@ -21,16 +23,17 @@ export default function DriveHud({ hud, onTouch, onQuit, lowPads = false }) {
     <>
       <div className="pointer-events-none absolute top-3 left-3 z-10 flex flex-col items-start gap-1.5">
         <div className="flex items-stretch bg-panel/90">
-          <div className="px-3 py-1">
-            <div className="font-display text-[34px] leading-none font-extrabold tabular-nums" aria-hidden="true">
-              {hud.speed}
+          <div className="px-3 py-1 text-right max-[479px]:px-2">
+            {/* Place réservée à trois chiffres : le rapport engagé ne glisse pas de 99 à 100 km/h. */}
+            <div className="min-w-[1.47em] font-display text-[34px] leading-none font-extrabold" aria-hidden="true">
+              <Digits value={hud.speed} spoken={false} />
             </div>
             <div className="text-[12px] text-mute uppercase" aria-hidden="true">
               km/h
             </div>
           </div>
-          <div className="border-l border-line px-2.5 py-1 text-center" aria-hidden="true">
-            <div className="font-display text-[34px] leading-none font-extrabold tabular-nums">{hud.gear}</div>
+          <div className="border-l border-line px-2.5 py-1 text-center max-[479px]:px-2" aria-hidden="true">
+            <div className="font-display text-[34px] leading-none font-extrabold">{hud.gear}</div>
             <div className="text-[12px] text-mute uppercase">Rapp.</div>
           </div>
         </div>
@@ -47,19 +50,18 @@ export default function DriveHud({ hud, onTouch, onQuit, lowPads = false }) {
         </button>
       </div>
 
-      <dl className="pointer-events-none absolute top-3 right-3 bg-panel/90 px-3 py-1 text-right">
-        <div className="flex items-baseline justify-end gap-3">
+      <dl className="pointer-events-none absolute top-3 right-3 bg-panel/90 px-3 py-1 text-right max-[479px]:min-w-[118px] max-[479px]:px-2 max-[359px]:min-w-[110px] max-[359px]:px-1.5">
+        <div className="flex items-baseline justify-end gap-3 max-[479px]:flex-col max-[479px]:items-end max-[479px]:gap-0">
           <dt className="text-[12px] text-mute uppercase">Tour {hud.laps + 1}</dt>
-          <dd
-            className={`font-display text-[26px] leading-none font-bold tabular-nums ${hud.running && !hud.lapValid ? 'line-through' : ''}`}
-          >
-            {hud.running ? formatLapTime(hud.lapTime) : '–'}
+          {/* Largeur de « 8:88.888 » réservée : le panneau ne s'élargit pas à 10 secondes ni à la minute. */}
+          <dd className="min-w-[3.4em] font-display text-[26px] leading-none font-bold">
+            <Digits value={hud.running ? formatLapTime(hud.lapTime) : '–'} struck={hud.running && !hud.lapValid} />
           </dd>
         </div>
-        <div className="flex items-baseline justify-end gap-3 text-[14px]">
+        <div className="flex items-baseline justify-end gap-3 text-[14px] max-[479px]:gap-2 max-[359px]:gap-1">
           <dt className="text-mute">Écart</dt>
-          <dd className={`font-display font-semibold tabular-nums ${hud.delta !== null && hud.delta < 0 ? 'text-fastest' : ''}`}>
-            {hud.delta === null ? '–' : formatDelta(hud.delta)}
+          <dd className={`font-display font-semibold ${hud.delta !== null && hud.delta < 0 ? 'text-fastest' : ''}`}>
+            <Digits value={hud.delta === null ? '–' : formatDelta(hud.delta)} />
           </dd>
         </div>
         <div className="mt-0.5 flex justify-end gap-2 text-[13px]">
@@ -67,25 +69,27 @@ export default function DriveHud({ hud, onTouch, onQuit, lowPads = false }) {
             <div key={index} className="text-right">
               <dt className="text-[11px] text-mute uppercase">S{index + 1}</dt>
               <dd
-                className={`font-display font-semibold tabular-nums ${sector.best ? 'text-fastest' : ''} ${sector.time !== null && !sector.fresh ? 'opacity-60' : ''}`}
+                className={`min-w-[1.75em] font-display font-semibold ${sector.best ? 'text-fastest' : ''} ${sector.time !== null && !sector.fresh ? 'opacity-60' : ''}`}
               >
-                {sector.time === null ? '–' : sector.time.toFixed(1)}
+                <Digits value={sector.time === null ? '–' : sector.time.toFixed(1)} />
               </dd>
             </div>
           ))}
         </div>
         {hud.lastLap !== null && (
-          <div className="flex items-baseline justify-end gap-3 text-[14px]">
+          <div className="flex items-baseline justify-end gap-3 text-[14px] max-[479px]:gap-2 max-[359px]:gap-1">
             <dt className="text-mute">Dernier</dt>
-            <dd className={`font-display font-semibold tabular-nums ${hud.lastLapValid ? '' : 'line-through'}`}>
-              {formatLapTime(hud.lastLap)}
+            <dd className="font-display font-semibold">
+              <Digits value={formatLapTime(hud.lastLap)} struck={!hud.lastLapValid} />
             </dd>
           </div>
         )}
         {hud.bestLap !== null && (
-          <div className="flex items-baseline justify-end gap-3 text-[14px]">
+          <div className="flex items-baseline justify-end gap-3 text-[14px] max-[479px]:gap-2 max-[359px]:gap-1">
             <dt className="text-mute">Meilleur</dt>
-            <dd className="font-display font-semibold text-fastest tabular-nums">{formatLapTime(hud.bestLap)}</dd>
+            <dd className="font-display font-semibold text-fastest">
+              <Digits value={formatLapTime(hud.bestLap)} />
+            </dd>
           </div>
         )}
       </dl>
